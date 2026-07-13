@@ -1,8 +1,18 @@
 from __future__ import annotations
 
+import logging
+import os
 from pathlib import Path
 
 from swb_cli.swbmeta import CodeSnippet
+
+logger = logging.getLogger(__name__)
+
+_DEFAULT_MAX_SOURCE_MB = 10
+
+
+def _max_source_bytes() -> int:
+    return int(os.environ.get("SWB_MAX_SOURCE_MB", _DEFAULT_MAX_SOURCE_MB)) * 1024 * 1024
 
 _EXT_TO_LANG: dict[str, str] = {
     ".py":   "python",
@@ -31,6 +41,53 @@ def detect_lang(uri: str) -> str | None:
     return _EXT_TO_LANG.get(Path(uri).suffix.lower())
 
 
+def resolve_under_root(repo_root: Path, uri: str) -> Path | None:
+    """Resolve a SARIF ``uri`` against ``repo_root``, rejecting escapes.
+
+    SARIF files are untrusted input: a crafted ``uri`` (absolute path,
+    ``../`` traversal, or a symlink pointing outside the repo) must not let
+    enrich read arbitrary host files. Returns the resolved path when it stays
+    under ``repo_root``, otherwise logs a warning and returns None.
+    """
+    root = repo_root.resolve()
+    try:
+        candidate = (root / uri).resolve()
+    except (OSError, RuntimeError) as exc:  # symlink loop, path too long, …
+        logger.warning("Cannot resolve uri %r under repo root: %s; skipping", uri, exc)
+        return None
+    if not candidate.is_relative_to(root):
+        logger.warning("uri %r resolves outside repo root %s; skipping", uri, root)
+        return None
+    return candidate
+
+
+def read_source_lines(repo_root: Path, uri: str) -> list[str] | None:
+    """Read a source file referenced by a SARIF ``uri`` as a list of lines.
+
+    Applies the same safety rails as snippet extraction: the path must
+    resolve under ``repo_root`` (T-01) and the file must not exceed the
+    source size limit (T-02). Returns None when unreadable.
+    """
+    file_path = resolve_under_root(repo_root, uri)
+    if file_path is None or not file_path.exists():
+        return None
+
+    # Size cap: a bloated file referenced by an untrusted uri must not be read
+    # into memory at all — degrade to None, same as T-01.
+    max_bytes = _max_source_bytes()
+    size = file_path.stat().st_size
+    if size > max_bytes:
+        logger.warning(
+            "File %r is %d bytes, over the %d MB source limit (SWB_MAX_SOURCE_MB); skipping snippet",
+            uri,
+            size,
+            max_bytes // (1024 * 1024),
+        )
+        return None
+
+    return file_path.read_text(encoding="utf-8", errors="replace").splitlines()
+
+
 def extract_snippet(
     repo_root: Path,
     uri: str,
@@ -42,11 +99,9 @@ def extract_snippet(
     if context_policy == "none":
         return None
 
-    file_path = repo_root / uri
-    if not file_path.exists():
+    lines = read_source_lines(repo_root, uri)
+    if lines is None:
         return None
-
-    lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
     total = len(lines)
 
     hot_start = start_line

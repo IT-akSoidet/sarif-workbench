@@ -1,10 +1,51 @@
 const BASE = '/api/v1'
 
+// Ошибка API с сохранённым машиночитаемым кодом (`error` в теле ответа),
+// когда UI должен различать причины 4xx (например `no_baseline` в diff-эндпоинте).
+// `detail` (T-38) — весь разобранный объект `detail` ответа как есть, когда это
+// словарь: для `version_conflict` (409 на PATCH .../verdict) в нём лежит
+// актуальное состояние находки под ключом `finding`, чтобы UI не падал молча,
+// а мог сразу показать пользователю, что изменилось (без лишнего round-trip'а).
+export class ApiError extends Error {
+  status: number
+  code?: string
+  detail?: Record<string, unknown>
+  constructor(message: string, status: number, code?: string, detail?: Record<string, unknown>) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = code
+    this.detail = detail
+  }
+}
+
+// FastAPI оборачивает `raise HTTPException(status, detail)` как `{"detail": detail}`.
+// В этом проекте `detail` почти всегда — словарь `{"error": "...", "message": "..."}`
+// (см. server/swb_server/routers/*.py), но может быть и голой строкой (обычный
+// `HTTPException(404, "not found")`) или списком (стандартные pydantic-ошибки валидации
+// FastAPI) — в этих случаях machine-readable кода нет, используем только текст/статус.
+function parseErrorBody(body: unknown, fallback: string): { message: string; code?: string; detail?: Record<string, unknown> } {
+  if (body && typeof body === 'object' && 'detail' in body) {
+    const detail = (body as { detail: unknown }).detail
+    if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+      const d = detail as Record<string, unknown>
+      return {
+        message: typeof d.message === 'string' ? d.message : fallback,
+        code: typeof d.error === 'string' ? d.error : undefined,
+        detail: d,
+      }
+    }
+    if (typeof detail === 'string') return { message: detail }
+  }
+  return { message: fallback }
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(BASE + path, init)
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ message: res.statusText }))
-    throw new Error(body.message ?? res.statusText)
+    const body = await res.json().catch(() => null)
+    const { message, code, detail } = parseErrorBody(body, res.statusText)
+    throw new ApiError(message, res.status, code, detail)
   }
   return res.json() as Promise<T>
 }
@@ -44,7 +85,8 @@ export interface FindingItem {
   id: string; swb_id: string; occurrence: number
   severity: string; rule_id: string; rule_name: string; cwe: string | null
   uri: string; start_line: number; scope: string | null; message: string
-  verdict: string; verdict_source: string | null; confidence: number | null; lang: string | null
+  verdict: string; verdict_source: string | null; lang: string | null
+  fingerprint_algo?: string | null; fingerprint_level?: string | null
 }
 
 export interface FindingsPage {
@@ -55,16 +97,31 @@ export interface Snippet {
   start_line: number; end_line: number | null; lines: string[]; hot_line: number
 }
 
+// T-39 (ADR 0001 §8): multi-location payload — not identity, purely display.
+export interface LocationRegion {
+  start_line: number; end_line: number | null; start_column: number | null
+}
+export interface ExtraLocation { uri: string; region: LocationRegion }
+export interface RelatedLocation { uri: string; region: LocationRegion; message: string | null }
+export interface CodeFlowStep { uri: string; line: number | null; message: string | null }
+export interface ThreadFlow { steps: CodeFlowStep[] }
+export interface CodeFlow { thread_flows: ThreadFlow[] }
+
 export interface VerdictObj {
-  verdict: string; source: string | null; confidence: number | null; rationale: string | null
+  verdict: string; source: string | null; rationale: string | null
   provider: string | null; needs_reconfirm: boolean
+  version: number | null // T-38: оптимистическая блокировка — вернуть в PATCH .../verdict как есть
   history: Array<{ verdict: string; source: string | null; at: string }>
 }
 
 export interface FindingDetail extends FindingItem {
   rule_description: string | null; help_uri: string | null
   end_line: number | null
-  snippet: Snippet | null; code_flow: unknown | null
+  snippet: Snippet | null
+  // T-39: always arrays (possibly empty), server never sends null for these.
+  code_flow: CodeFlow[]
+  extra_locations: ExtraLocation[]
+  related_locations: RelatedLocation[]
   git: { blob_sha?: string; blame_commit?: string; last_changed?: string } | null
   verdict: string; // overridden by `verdict` object below
   verdictObj: VerdictObj
@@ -72,6 +129,14 @@ export interface FindingDetail extends FindingItem {
 
 export interface AggGroup { key: string; label: string; count: number }
 export interface AggResponse { by: string; groups: AggGroup[] }
+
+export interface DiffCounts { new: number; closed: number; unchanged: number }
+
+export interface DiffResponse {
+  run_id: string; baseline_run_id: string
+  new: FindingItem[]; closed: FindingItem[]; unchanged: FindingItem[]
+  counts: DiffCounts
+}
 
 // ---- API calls ----
 
@@ -100,14 +165,22 @@ export const api = {
   aggregations: (runId: string, by: string): Promise<AggResponse> =>
     req(`/runs/${runId}/aggregations?by=${by}`),
 
+  diff: (runId: string, baselineRunId?: string): Promise<DiffResponse> => {
+    const qs = baselineRunId ? `?baseline=${encodeURIComponent(baselineRunId)}` : ''
+    return req(`/runs/${runId}/diff${qs}`)
+  },
+
   finding: (fid: string): Promise<unknown> =>
     req(`/findings/${fid}`),
 
-  setVerdict: (fid: string, verdict: string, rationale: string): Promise<unknown> =>
+  // version (T-38) — значение VerdictObj.version, прочитанное последним GET
+  // /findings/{id}; сервер сравнивает его с текущей версией identity и
+  // отвечает 409 version_conflict, если находка успела измениться под клиентом.
+  setVerdict: (fid: string, verdict: string, rationale: string, version: number): Promise<unknown> =>
     req(`/findings/${fid}/verdict`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ verdict, rationale }),
+      body: JSON.stringify({ verdict, rationale, version }),
     }),
 
   resetVerdicts: (runId: string): Promise<{ reset: number }> =>

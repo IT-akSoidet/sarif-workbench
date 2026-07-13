@@ -8,25 +8,36 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from swb_cli.swbmeta import (
+    CodeFlow,
+    CodeFlowStep,
     ContextPolicy,
+    ExtraLocation,
     Finding,
-    Fingerprints,
     GitInfo,
     Locator,
     Provenance,
+    RelatedLocation,
     Region,
     SourceSarif,
     SwbMeta,
+    ThreadFlow,
 )
 
 from swb_cli.sarif.parser import parse_sarif
-from swb_cli.code import extract_snippet
+from swb_cli.code import extract_snippet, read_source_lines, resolve_under_root
+from swb_cli.fingerprints import (
+    IdentitySource,
+    assign_swb_ids,
+    build_fingerprints,
+    normalize_uri,
+)
 
 VERSION = "0.1.0"
 logger = logging.getLogger(__name__)
 
 
 def enrich(args) -> int:
+    """Entry point for `swb-cli enrich`. Returns a process exit code."""
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper()),
         format="%(levelname)s %(message)s",
@@ -42,6 +53,14 @@ def enrich(args) -> int:
         if args.out
         else sarif_path.with_suffix(sarif_path.suffix + ".swbmeta.json")
     )
+
+    if out_path == sarif_path:
+        logger.error(
+            "Refusing to write --out to the same path as the input SARIF file: %s. "
+            "This would overwrite the original report; choose a different --out path.",
+            sarif_path,
+        )
+        return 2
 
     logger.info("Reading %s", sarif_path)
     sarif_bytes = sarif_path.read_bytes()
@@ -75,7 +94,7 @@ def enrich(args) -> int:
         lines=args.context_lines if args.context_policy == "lines" else None,
     )
 
-    findings = _build_findings(
+    findings, skipped_no_locations = _build_findings(
         runs,
         repo_root=repo_root,
         context_policy=args.context_policy,
@@ -100,7 +119,13 @@ def enrich(args) -> int:
         meta.model_dump_json(by_alias=True, indent=2),
         encoding="utf-8",
     )
-    logger.info("Wrote %s (%d findings)", out_path, len(findings))
+    # T-36: skipped-no-locations results are counted (not just individually
+    # warned about) so a scan dominated by locationless results doesn't
+    # quietly vanish from triage without a visible trace anywhere.
+    logger.info(
+        "Wrote %s (%d findings, %d skipped: no locations)",
+        out_path, len(findings), skipped_no_locations,
+    )
     return 0
 
 
@@ -110,19 +135,42 @@ def _build_findings(
     context_policy: str,
     context_lines: int,
     no_git: bool,
-) -> list[Finding]:
-    findings = []
-    occurrence_counters: dict[tuple, int] = {}
+) -> tuple[list[Finding], int]:
+    # Two passes (ADR 0001 §2): first gather every finding with its base
+    # fingerprint material, then let assign_swb_ids number duplicates
+    # deterministically — occurrence must not depend on result order.
+    prepared: list[tuple] = []
+    identity_sources: list[IdentitySource] = []
+    skipped_no_locations = 0
 
     for run in runs:
         for result in run.results:
             if not result.locations:
+                # ADR 0001 §8: a result with no locations has no primary
+                # location to build an identity from — the CLI still cannot
+                # emit a finding for it (giving it one would need a new
+                # fingerprint algorithm version, swb-fp/3). T-36: this used
+                # to be a silent `continue` with no trace anywhere; now it's
+                # logged and counted so it doesn't vanish without a warning.
+                skipped_no_locations += 1
+                logger.warning(
+                    "Result run=%d result=%d rule=%r has no locations; "
+                    "skipping (no identity can be built for it, see ADR 0001 §8)",
+                    run.index, result.result_index, result.rule_id,
+                )
                 continue
             loc = result.locations[0]
 
-            group_key = (result.rule_id, loc.uri, loc.region.start_line)
-            occurrence = occurrence_counters.get(group_key, 0)
-            occurrence_counters[group_key] = occurrence + 1
+            norm_uri = normalize_uri(
+                loc.uri, loc.uri_base_id, run.original_uri_base_ids, repo_root,
+            )
+            # Source window for the content fingerprint (ADR 0001 §1 level 2);
+            # read via norm_uri so uriBaseId-relative paths resolve too.
+            source_lines = (
+                read_source_lines(repo_root, norm_uri)
+                if repo_root and norm_uri
+                else None
+            )
 
             code = None
             git = None
@@ -138,84 +186,118 @@ def _build_findings(
                 if not no_git:
                     git = _get_git_info(repo_root, loc.uri, loc.region.start_line, loc.region.end_line)
 
-            swb_id, content_hash, context_hash = _compute_swb_id(
+            fingerprints = build_fingerprints(
+                tool_name=run.tool.name,
                 rule_id=result.rule_id,
-                uri=loc.uri,
+                norm_uri=norm_uri,
                 start_line=loc.region.start_line,
-                occurrence=occurrence,
-                code=code,
-                git=git,
+                end_line=loc.region.end_line,
+                tool_fingerprints=result.fingerprints,
+                partial_fingerprints=result.partial_fingerprints,
+                source_lines=source_lines,
             )
 
-            findings.append(Finding(
-                swb_id=swb_id,
-                occurrence=occurrence,
-                locator=Locator(
-                    run=run.index,
-                    result=result.result_index,
-                    rule_id=result.rule_id,
-                    uri=loc.uri,
-                    region=Region(
-                        start_line=loc.region.start_line,
-                        end_line=loc.region.end_line,
-                        start_column=loc.region.start_column,
-                    ),
-                ),
-                fingerprints=Fingerprints(
-                    rule=result.rule_id,
-                    content=content_hash,
-                    context=context_hash,
-                ),
-                code=code,
-                git=git,
+            identity_sources.append(IdentitySource(
+                tool_name=run.tool.name,
+                rule_id=result.rule_id,
+                norm_uri=norm_uri,
+                start_line=loc.region.start_line,
+                start_column=loc.region.start_column,
+                message=result.message,
+                fingerprints=fingerprints,
+            ))
+            # T-39 (ADR 0001 §8): locations[1:], relatedLocations and
+            # codeFlows are payload, not identity material — they ride along
+            # unchanged and never touch identity_sources/fingerprints above.
+            extra_locations = _convert_extra_locations(result.locations[1:])
+            related_locations = _convert_related_locations(result.related_locations)
+            code_flows = _convert_code_flows(result.code_flows)
+            prepared.append((
+                run, result, loc, norm_uri, fingerprints, code, git,
+                extra_locations, related_locations, code_flows,
             ))
 
-    return findings
+    swb_ids = assign_swb_ids(identity_sources)
+
+    findings = []
+    for (
+        (run, result, loc, norm_uri, fingerprints, code, git,
+         extra_locations, related_locations, code_flows),
+        (swb_id, occurrence),
+    ) in zip(prepared, swb_ids):
+        findings.append(Finding(
+            swb_id=swb_id,
+            occurrence=occurrence,
+            locator=Locator(
+                run=run.index,
+                result=result.result_index,
+                rule_id=result.rule_id,
+                uri=loc.uri,
+                norm_uri=norm_uri,
+                region=Region(
+                    start_line=loc.region.start_line,
+                    end_line=loc.region.end_line,
+                    start_column=loc.region.start_column,
+                ),
+            ),
+            fingerprints=fingerprints,
+            code=code,
+            git=git,
+            extra_locations=extra_locations,
+            related_locations=related_locations,
+            code_flows=code_flows,
+        ))
+
+    return findings, skipped_no_locations
 
 
-def _compute_swb_id(
-    rule_id: str,
-    uri: str,
-    start_line: int,
-    occurrence: int,
-    code=None,
-    git=None,
-) -> tuple[str, str | None, str | None]:
-    content_hash = None
-    context_hash = None
-    blame_hash = None
+def _convert_extra_locations(locations) -> list[ExtraLocation]:
+    """`result.locations[1:]` -> swbmeta payload (ADR 0001 §8: not identity)."""
+    return [
+        ExtraLocation(
+            uri=loc.uri,
+            region=Region(
+                start_line=loc.region.start_line,
+                end_line=loc.region.end_line,
+                start_column=loc.region.start_column,
+            ),
+        )
+        for loc in locations
+    ]
 
-    if code is not None and code.snippet:
-        lines = code.snippet.splitlines()
-        hot_index = start_line - code.start_line
 
-        if 0 <= hot_index < len(lines):
-            line_text = lines[hot_index].strip()
-            if line_text:
-                content_hash = hashlib.sha256(line_text.encode()).hexdigest()[:16]
+def _convert_related_locations(related_locations) -> list[RelatedLocation]:
+    """`result.relatedLocations` -> swbmeta payload (ADR 0001 §8: not identity)."""
+    return [
+        RelatedLocation(
+            uri=loc.uri,
+            region=Region(
+                start_line=loc.region.start_line,
+                end_line=loc.region.end_line,
+                start_column=loc.region.start_column,
+            ),
+            message=loc.message or None,
+        )
+        for loc in related_locations
+    ]
 
-            context_lines = [l for i, l in enumerate(lines) if i != hot_index]
-            context_text = "\n".join(context_lines).strip()
-            if context_text:
-                context_hash = hashlib.sha256(context_text.encode()).hexdigest()[:16]
 
-    if git is not None and git.blame_commit:
-        blame_hash = git.blame_commit[:16]
-
-    if content_hash is not None:
-        material = "\x00".join(filter(None, [
-            rule_id, uri,
-            content_hash or "",
-            context_hash or "",
-            blame_hash or "",
-            str(occurrence),
-        ]))
-        swb_id = "h:" + hashlib.sha256(material.encode()).hexdigest()[:16]
-        return swb_id, content_hash, context_hash
-
-    material = f"{rule_id}\x00{uri}\x00{start_line}\x00{occurrence}"
-    swb_id = "h:" + hashlib.sha256(material.encode()).hexdigest()[:16]
-    return swb_id, content_hash, context_hash
+def _convert_code_flows(code_flows) -> list[CodeFlow]:
+    """`result.codeFlows` -> swbmeta payload, structure preserved (T-39)."""
+    return [
+        CodeFlow(
+            thread_flows=[
+                ThreadFlow(
+                    steps=[
+                        CodeFlowStep(uri=step.uri, line=step.line, message=step.message or None)
+                        for step in tf.steps
+                    ]
+                )
+                for tf in cf.thread_flows
+            ]
+        )
+        for cf in code_flows
+    ]
 
 
 def _build_provenance(
@@ -259,8 +341,8 @@ def _get_git_info(
     start_line: int,
     end_line: int | None,
 ) -> GitInfo | None:
-    file_path = repo_root / uri
-    if not file_path.exists():
+    file_path = resolve_under_root(repo_root, uri)
+    if file_path is None or not file_path.exists():
         return None
     try:
         blob_sha = _git(repo_root, ["hash-object", str(file_path)])

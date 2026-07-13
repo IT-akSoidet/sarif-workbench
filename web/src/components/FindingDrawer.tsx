@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api, normalizeDetail } from '../api/client'
+import { ApiError, api, normalizeDetail } from '../api/client'
 import { SEV, sevStyle } from '../lib/severity'
 import { VERDICT, SRC_LABEL, verdictStyle, verdictLabel } from '../lib/verdict'
 
@@ -31,12 +31,17 @@ function CodeBlock({ snippet, hotLine }: { snippet: { start_line: number; lines:
 export default function FindingDrawer({ findingId, runId, onClose }: Props) {
   const qc = useQueryClient()
   const open = !!findingId
+  // T-38: сообщение о конфликте версий, показываемое вместо молчаливого
+  // затирания чужого решения (см. verdictMut.onError ниже).
+  const [conflictMsg, setConflictMsg] = useState<string | null>(null)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
+
+  useEffect(() => { setConflictMsg(null) }, [findingId])
 
   const { data: raw, isLoading } = useQuery({
     queryKey: ['finding', findingId],
@@ -45,12 +50,27 @@ export default function FindingDrawer({ findingId, runId, onClose }: Props) {
   })
 
   const verdictMut = useMutation({
-    mutationFn: ({ verdict, rationale }: { verdict: string; rationale: string }) =>
-      api.setVerdict(findingId!, verdict, rationale),
+    mutationFn: ({ verdict, rationale, version }: { verdict: string; rationale: string; version: number }) =>
+      api.setVerdict(findingId!, verdict, rationale, version),
     onSuccess: () => {
+      setConflictMsg(null)
       qc.invalidateQueries({ queryKey: ['finding', findingId] })
       qc.invalidateQueries({ queryKey: ['findings', runId] })
       qc.invalidateQueries({ queryKey: ['run', runId] })
+    },
+    onError: (err) => {
+      if (err instanceof ApiError && err.code === 'version_conflict') {
+        // Сервер уже прислал актуальное состояние находки в теле 409 —
+        // используем его напрямую вместо лишнего повторного GET, чтобы UI
+        // сразу показал то, что реально лежит в БД, а не молча потерял ввод.
+        const fresh = err.detail?.finding
+        if (fresh) {
+          qc.setQueryData(['finding', findingId], fresh)
+        } else {
+          qc.invalidateQueries({ queryKey: ['finding', findingId] })
+        }
+        setConflictMsg('Находка была изменена другим пользователем (или AI-анализом), пока вы её редактировали. Вердикт не сохранён — данные обновлены, проверьте и повторите.')
+      }
     },
   })
 
@@ -101,8 +121,56 @@ export default function FindingDrawer({ findingId, runId, onClose }: Props) {
                   {f.lang && <><span className="k">Язык</span><span className="v">{f.lang}</span></>}
                   <span className="k">swb_id</span>
                   <span className="v mono">{f.swb_id}</span>
+                  {/* T-39: primary location + count/list of the rest (ADR 0001 §8 — payload, not identity) */}
+                  {f.extra_locations.length > 0 && (
+                    <><span className="k">Ещё локаций</span><span className="v">{f.extra_locations.length}</span></>
+                  )}
                 </div>
+                {f.extra_locations.length > 0 && (
+                  <div className="audit" style={{ marginTop: 8 }}>
+                    {f.extra_locations.map((el, i) => (
+                      <div key={i} className="ar">
+                        <span className="mono">{el.uri}:{el.region.start_line}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
+
+              {/* Related locations */}
+              {f.related_locations.length > 0 && (
+                <div className="dr-sec">
+                  <h3>Связанные локации</h3>
+                  <div className="audit">
+                    {f.related_locations.map((rl, i) => (
+                      <div key={i} className="ar">
+                        <span className="mono">{rl.uri}:{rl.region.start_line}</span>
+                        {rl.message && <span className="faint">— {rl.message}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Code flow */}
+              {f.code_flow.length > 0 && (
+                <div className="dr-sec">
+                  <h3>Путь выполнения (code flow)</h3>
+                  <div className="audit">
+                    {f.code_flow.flatMap((cf, ci) =>
+                      cf.thread_flows.flatMap((tf, ti) =>
+                        tf.steps.map((s, si) => (
+                          <div key={`${ci}-${ti}-${si}`} className="ar">
+                            <span className="faint mono">{si + 1}.</span>
+                            <span className="mono">{s.uri}{s.line != null ? `:${s.line}` : ''}</span>
+                            {s.message && <span className="faint">— {s.message}</span>}
+                          </div>
+                        ))
+                      )
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Code snippet */}
               {f.snippet && (
@@ -143,6 +211,12 @@ export default function FindingDrawer({ findingId, runId, onClose }: Props) {
                 <h3>Вердикт триажа</h3>
                 <VerdictCard verdict={f.verdictObj} />
 
+                {conflictMsg && (
+                  <div className="rationale" style={{ marginTop: 10, color: 'var(--high)', background: 'var(--high-bg)', borderColor: 'var(--high)' }}>
+                    {conflictMsg}
+                  </div>
+                )}
+
                 <div className="vd-actions-h">Переопределить</div>
                 <div className="vd-actions">
                   {(['true_positive', 'false_positive', 'uncertain'] as const).map(v => {
@@ -152,7 +226,7 @@ export default function FindingDrawer({ findingId, runId, onClose }: Props) {
                         key={v}
                         className="vd-btn"
                         style={isActive ? { background: VERDICT[v].c, borderColor: VERDICT[v].c, color: '#fff' } : undefined}
-                        onClick={() => verdictMut.mutate({ verdict: v, rationale: '' })}
+                        onClick={() => verdictMut.mutate({ verdict: v, rationale: '', version: f.verdictObj.version ?? 1 })}
                         disabled={verdictMut.isPending}
                       >
                         <span className="dot" style={{ background: VERDICT[v].c }} />
@@ -162,7 +236,7 @@ export default function FindingDrawer({ findingId, runId, onClose }: Props) {
                   })}
                   <button
                     className="vd-btn"
-                    onClick={() => verdictMut.mutate({ verdict: 'unmarked', rationale: '' })}
+                    onClick={() => verdictMut.mutate({ verdict: 'unmarked', rationale: '', version: f.verdictObj.version ?? 1 })}
                     disabled={verdictMut.isPending || f.verdictObj.verdict === 'unmarked'}
                   >
                     Сбросить
@@ -217,18 +291,6 @@ function VerdictCard({ verdict }: { verdict: ReturnType<typeof normalizeDetail>[
           </span>
         )}
       </div>
-      {verdict.confidence != null && (
-        <div className="conf">
-          <span className="clab">Уверенность</span>
-          <span className="track">
-            <span className="fill" style={{
-              width: `${verdict.confidence}%`,
-              background: verdict.confidence >= 70 ? 'var(--ok)' : verdict.confidence >= 50 ? 'var(--med)' : 'var(--high)',
-            }} />
-          </span>
-          <span className="pct">{verdict.confidence}%</span>
-        </div>
-      )}
       {verdict.rationale && <div className="rationale">{verdict.rationale}</div>}
     </div>
   )

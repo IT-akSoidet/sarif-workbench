@@ -2,19 +2,18 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 logger = logging.getLogger(__name__)
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..ai.analyze_loop import load_findings_for_analysis, max_consecutive_errors, run_analysis
+from ..ai.prompts import PROMPTS
 from ..db import SessionLocal, get_db
-from ..models import Finding, Run
-from ..ai.prompts import PROMPTS, build_user_message, parse_response
-from ..ai.providers import call_llm
+from ..models import Run
 
 router = APIRouter(prefix="/api/v1")
 
@@ -26,6 +25,7 @@ class AnalyzeRequest(BaseModel):
     prompt_id: str = "honest"          # honest | force_fp | custom
     custom_system: str | None = None   # used when prompt_id == "custom"
     only_unmarked: bool = True
+    override: bool = False             # T-24: перезаписывать human-вердикты только явно
 
 
 @router.get("/prompts")
@@ -37,8 +37,15 @@ def list_prompts():
 async def analyze_run(
     run_id: str,
     req: AnalyzeRequest,
+    request: Request,
     db: Session = Depends(get_db),
 ):
+    """Транспортный слой (SSE): валидация запроса, StreamingResponse.
+
+    Доменный цикл — `ai.analyze_loop.run_analysis()` — вынесен отдельно (T-37)
+    и тестируется без HTTP. Здесь только: разбор промпта, own DB-сессия для
+    генератора (см. комментарий в `stream()`), форматирование событий в SSE.
+    """
     run = db.query(Run).filter(Run.id == run_id).first()
     if not run:
         raise HTTPException(404, {"error": "not_found", "message": "Run not found"})
@@ -47,130 +54,50 @@ async def analyze_run(
         if not req.custom_system:
             raise HTTPException(422, {"error": "missing_prompt", "message": "custom_system is required when prompt_id=custom"})
         system_prompt = req.custom_system
+        # T-25: произвольный промпт с лёту не зарегистрирован — у него нет и не может быть версии.
+        prompt_version = None
     elif req.prompt_id in PROMPTS:
         system_prompt = PROMPTS[req.prompt_id]["system"]
+        prompt_version = PROMPTS[req.prompt_id]["version"]
     else:
         raise HTTPException(422, {"error": "unknown_prompt", "message": f"Unknown prompt_id: {req.prompt_id!r}"})
 
     async def stream():
+        # Своя сессия (не Depends(get_db)): тело этого генератора исполняется
+        # StreamingResponse ПОСЛЕ того, как analyze_run() вернул ответ — сессия
+        # из request-scoped get_db к этому моменту уже была бы закрыта.
         with SessionLocal() as session:
-            q = session.query(Finding).filter(Finding.run_id == run_id)
-            if req.only_unmarked:
-                q = q.filter(Finding.verdict == "unmarked")
-            findings = q.all()
-
-            total = len(findings)
-            tokens_total = 0
-
+            findings, skipped_human = load_findings_for_analysis(
+                session, run_id, only_unmarked=req.only_unmarked, override=req.override,
+            )
             logger.info(
-                "[analyze] START run_id=%s  provider=%s  model=%s  prompt=%s  only_unmarked=%s  findings=%d",
-                run_id, req.provider, req.model, req.prompt_id, req.only_unmarked, total,
+                "[analyze] START run_id=%s  provider=%s  model=%s  prompt=%s  only_unmarked=%s  "
+                "override=%s  findings=%d  skipped_human=%d",
+                run_id, req.provider, req.model, req.prompt_id, req.only_unmarked, req.override,
+                len(findings), skipped_human,
             )
 
-            if total == 0:
-                logger.info("[analyze] no findings to process, exiting early")
-                yield _event({"type": "done", "done": 0, "total": 0, "tokens_total": 0, "message": "Нет находок для анализа"})
-                return
-
-            yield _event({"type": "start", "total": total})
-
-            for i, finding in enumerate(findings):
-                logger.debug(
-                    "[analyze] [%d/%d] processing finding id=%s  rule=%s  severity=%s  %s:%s",
-                    i + 1, total, finding.id, finding.rule_id, finding.severity,
-                    finding.uri, finding.start_line,
-                )
-                try:
-                    user_msg = build_user_message(finding)
-                    logger.debug("[analyze] [%d/%d] user_message built (%d chars)", i + 1, total, len(user_msg))
-
-                    result = await call_llm(
-                        provider=req.provider,
-                        api_key=req.api_key,
-                        model=req.model,
-                        system=system_prompt,
-                        user=user_msg,
-                    )
-
-                    raw_content = result["content"]
-                    verdict, rationale = parse_response(raw_content, req.prompt_id)
-                    tokens_total += result.get("tokens", 0)
-
-                    logger.info(
-                        "[analyze] [%d/%d] finding=%s  verdict=%s  tokens_this=%d  tokens_total=%d",
-                        i + 1, total, finding.id, verdict, result.get("tokens", 0), tokens_total,
-                    )
-                    logger.debug(
-                        "[analyze] [%d/%d] raw_response:\n%s",
-                        i + 1, total, raw_content,
-                    )
-                    logger.debug(
-                        "[analyze] [%d/%d] parsed  verdict=%s  rationale=%s",
-                        i + 1, total, verdict, rationale,
-                    )
-
-                    finding.verdict = verdict
-                    finding.rationale = rationale
-                    finding.verdict_source = "ai"
-                    finding.provider = req.provider
-                    finding.model_version = req.model
-                    finding.needs_reconfirm = False
-
-                    history = list(finding.verdict_history or [])
-                    history.append({
-                        "verdict": verdict,
-                        "rationale": rationale,
-                        "source": "ai",
-                        "provider": req.provider,
-                        "model": req.model,
-                        "ts": datetime.utcnow().isoformat(),
-                    })
-                    finding.verdict_history = history
-
-                    session.commit()
-                    logger.debug("[analyze] [%d/%d] committed to DB", i + 1, total)
-
-                    yield _event({
-                        "type": "progress",
-                        "done": i + 1,
-                        "total": total,
-                        "tokens_total": tokens_total,
-                        "finding_id": finding.id,
-                        "verdict": verdict,
-                        "rationale": rationale,
-                    })
-
-                except Exception as exc:
-                    msg = str(exc)
-                    logger.error(
-                        "[analyze] [%d/%d] FAILED finding=%s (%s:%s)  error=%s: %s",
-                        i + 1, total, finding.id, finding.uri, finding.start_line,
-                        type(exc).__name__, msg,
-                    )
-                    yield _event({
-                        "type": "error",
-                        "done": i + 1,
-                        "total": total,
-                        "tokens_total": tokens_total,
-                        "finding_id": finding.id,
-                        "uri": finding.uri or "",
-                        "start_line": finding.start_line or 0,
-                        "message": msg,
-                    })
-
-            # Recount verdict summary on the run
-            run_obj = session.query(Run).filter(Run.id == run_id).first()
-            if run_obj:
-                all_findings = session.query(Finding).filter(Finding.run_id == run_id).all()
-                cvd: dict[str, int] = {"true_positive": 0, "false_positive": 0, "uncertain": 0, "unmarked": 0}
-                for f in all_findings:
-                    k = f.verdict or "unmarked"
-                    cvd[k] = cvd.get(k, 0) + 1
-                run_obj.counts_by_verdict = cvd
-                session.commit()
-                logger.info("[analyze] DONE run_id=%s  counts=%s  tokens_total=%d", run_id, cvd, tokens_total)
-
-            yield _event({"type": "done", "done": total, "total": total, "tokens_total": tokens_total})
+            async for event in run_analysis(
+                session,
+                run_id,
+                findings,
+                provider=req.provider,
+                api_key=req.api_key,
+                model=req.model,
+                system_prompt=system_prompt,
+                prompt_id=req.prompt_id,
+                prompt_version=prompt_version,
+                override=req.override,
+                skipped_human=skipped_human,
+                # T-37: проверяется перед каждым вызовом провайдера в run_analysis —
+                # отмена анализа в UI (fetch AbortController) реально прекращает
+                # дальнейшие LLM-вызовы на сервере, а не только прячет прогресс в браузере.
+                is_disconnected=request.is_disconnected,
+                # T-37: circuit breaker — N подряд ошибок провайдера останавливает
+                # цикл вместо перебора всех находок с таймаутами (битый ключ и т.п.).
+                max_errors=max_consecutive_errors(),
+            ):
+                yield _event(event)
 
     return StreamingResponse(stream(), media_type="text/event-stream", headers={"X-Accel-Buffering": "no"})
 

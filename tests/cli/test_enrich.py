@@ -1,9 +1,10 @@
 import hashlib
 import json
+import logging
 import pytest
 from pathlib import Path
 
-from swb_cli.commands.enrich import enrich
+from swb_cli.commands.enrich import _get_git_info, enrich
 
 DATA = Path(__file__).parent.parent / "data"
 VALID = DATA / "valid"
@@ -53,7 +54,7 @@ def test_output_is_valid_json(tmp_path):
     out = tmp_path / "out.swbmeta.json"
     enrich(Args(VALID / "minimal.sarif", out=out))
     data = json.loads(out.read_text())
-    assert data["schema"] == "swbmeta/v1"
+    assert data["schema"] == "swbmeta/v3"
 
 def test_sha256_matches_source_file(tmp_path):
     sarif = VALID / "minimal.sarif"
@@ -82,6 +83,55 @@ def test_no_locations_finding_is_skipped(tmp_path):
     data = json.loads(out.read_text())
     assert data["findings"] == []
 
+def test_no_locations_result_logs_warning(tmp_path, caplog):
+    # T-36: результат без locations больше не пропадает бесследно — warning в stderr-лог
+    out = tmp_path / "out.swbmeta.json"
+    with caplog.at_level(logging.WARNING):
+        code = enrich(Args(VALID / "no_locations.sarif", out=out))
+    assert code == 0
+    assert "no locations" in caplog.text
+
+def test_no_locations_result_counted_in_summary_log(tmp_path, caplog):
+    # T-36: результаты без locations учитываются в счётчике итогового лога enrich()
+    out = tmp_path / "out.swbmeta.json"
+    with caplog.at_level(logging.INFO):
+        enrich(Args(VALID / "no_locations.sarif", out=out))
+    assert "0 findings" in caplog.text
+    assert "1 skipped" in caplog.text
+
+def test_mixed_located_and_locationless_results_skip_count_matches(tmp_path, caplog):
+    # T-36: скипается только результат без locations; счётчик считает именно его,
+    # результат с локацией по-прежнему попадает в findings.
+    sarif = tmp_path / "report.sarif"
+    sarif.write_text(json.dumps({
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {"driver": {"name": "TestTool", "version": "1.0", "rules": []}},
+            "results": [
+                {
+                    "ruleId": "CWE-89", "level": "error",
+                    "message": {"text": "has location"},
+                    "locations": [{"physicalLocation": {
+                        "artifactLocation": {"uri": "src/db.py"},
+                        "region": {"startLine": 1},
+                    }}],
+                },
+                {
+                    "ruleId": "CWE-79", "level": "warning",
+                    "message": {"text": "no location"},
+                },
+            ],
+        }],
+    }))
+    out = tmp_path / "out.swbmeta.json"
+    with caplog.at_level(logging.INFO):
+        code = enrich(Args(sarif, out=out))
+    assert code == 0
+    data = json.loads(out.read_text())
+    assert len(data["findings"]) == 1
+    assert "1 findings" in caplog.text
+    assert "1 skipped" in caplog.text
+
 def test_original_sarif_not_modified(tmp_path):
     sarif = VALID / "minimal.sarif"
     original_bytes = sarif.read_bytes()
@@ -94,6 +144,45 @@ def test_default_out_path_is_next_to_sarif(tmp_path):
     sarif.write_bytes((VALID / "minimal.sarif").read_bytes())
     enrich(Args(sarif, out=None))
     assert (tmp_path / "report.sarif.swbmeta.json").exists()
+
+def test_out_equal_to_input_is_rejected(tmp_path):
+    sarif = tmp_path / "report.sarif"
+    sarif.write_bytes((VALID / "minimal.sarif").read_bytes())
+    original_bytes = sarif.read_bytes()
+    original_hash = hashlib.sha256(original_bytes).hexdigest()
+
+    code = enrich(Args(sarif, out=sarif))
+
+    assert code != 0
+    assert sarif.read_bytes() == original_bytes
+    assert hashlib.sha256(sarif.read_bytes()).hexdigest() == original_hash
+
+def test_out_equal_to_input_via_relative_path_is_rejected(tmp_path):
+    # --out указывает на тот же файл, но другим (не resolved) путём:
+    # через относительный сегмент "..", который после resolve() совпадает со входом.
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    sarif = tmp_path / "report.sarif"
+    sarif.write_bytes((VALID / "minimal.sarif").read_bytes())
+    original_bytes = sarif.read_bytes()
+
+    relative_out = sub / ".." / "report.sarif"
+    code = enrich(Args(sarif, out=relative_out))
+
+    assert code != 0
+    assert sarif.read_bytes() == original_bytes
+
+def test_out_different_from_input_still_works(tmp_path):
+    sarif = tmp_path / "report.sarif"
+    sarif.write_bytes((VALID / "minimal.sarif").read_bytes())
+    out = tmp_path / "report.sarif.swbmeta.json"
+
+    code = enrich(Args(sarif, out=out))
+
+    assert code == 0
+    assert out.exists()
+    data = json.loads(out.read_text())
+    assert len(data["findings"]) == 1
 
 def test_multi_run_findings_count(tmp_path):
     out = tmp_path / "out.swbmeta.json"
@@ -188,3 +277,83 @@ def test_git_is_null_without_repo_root(tmp_path):
     enrich(Args(VALID / "minimal.sarif", out=out, repo_root=None, no_git=False))
     data = json.loads(out.read_text())
     assert data["findings"][0]["git"] is None
+
+
+# ── path traversal через uri (T-01) ──────────────────────────────────────────
+
+def _record_git_calls(monkeypatch):
+    """Подменяет _git; возвращает список перехваченных вызовов."""
+    calls = []
+
+    def fake_git(cwd, git_args):
+        calls.append(git_args)
+        return ""
+
+    monkeypatch.setattr("swb_cli.commands.enrich._git", fake_git)
+    return calls
+
+def test_git_info_rejects_relative_traversal(tmp_path, monkeypatch, caplog):
+    root = tmp_path / "repo"
+    root.mkdir()
+    (tmp_path / "secret.py").write_text("TOP_SECRET = 1\n")
+    calls = _record_git_calls(monkeypatch)
+    with caplog.at_level(logging.WARNING):
+        assert _get_git_info(root, "../secret.py", 1, None) is None
+    assert calls == []
+    assert "repo root" in caplog.text
+
+def test_git_info_rejects_absolute_uri_outside_root(tmp_path, monkeypatch, caplog):
+    root = tmp_path / "repo"
+    root.mkdir()
+    outside = tmp_path / "secret.py"
+    outside.write_text("TOP_SECRET = 1\n")
+    calls = _record_git_calls(monkeypatch)
+    with caplog.at_level(logging.WARNING):
+        assert _get_git_info(root, str(outside), 1, None) is None
+    assert calls == []
+
+def test_git_info_rejects_symlink_escaping_root(tmp_path, monkeypatch, caplog):
+    root = tmp_path / "repo"
+    root.mkdir()
+    secret = tmp_path / "secret.py"
+    secret.write_text("TOP_SECRET = 1\n")
+    (root / "link.py").symlink_to(secret)
+    calls = _record_git_calls(monkeypatch)
+    with caplog.at_level(logging.WARNING):
+        assert _get_git_info(root, "link.py", 1, None) is None
+    assert calls == []
+
+def test_enrich_traversal_uris_get_null_code_and_warn(tmp_path, caplog):
+    # SARIF с двумя вредоносными uri и одним легитимным: enrich не падает,
+    # вредоносные находки получают code=None, легитимная обогащается как раньше
+    out = tmp_path / "out.swbmeta.json"
+    with caplog.at_level(logging.WARNING):
+        code = enrich(Args(VALID / "path_traversal.sarif", out=out,
+                           repo_root=DATA, context_policy="line"))
+    assert code == 0
+    data = json.loads(out.read_text())
+    by_uri = {f["locator"]["uri"]: f for f in data["findings"]}
+    assert by_uri["../../../../../../../../etc/passwd"]["code"] is None
+    assert by_uri["/etc/passwd"]["code"] is None
+    good = by_uri["src/db.py"]["code"]
+    assert good is not None
+    assert "CWE-89" in good["snippet"]
+    assert "repo root" in caplog.text
+
+
+# ── лимит размера исходников (T-02) ──────────────────────────────────────────
+
+def test_enrich_oversized_source_gets_null_code_and_warns(tmp_path, monkeypatch, caplog):
+    # исходник крупнее лимита: enrich не падает, code=None, warning в stderr-лог
+    monkeypatch.setenv("SWB_MAX_SOURCE_MB", "1")
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "db.py").write_bytes(b"# huge\n" * 300_000)  # ~2 МБ > лимита в 1 МБ
+    out = tmp_path / "out.swbmeta.json"
+    with caplog.at_level(logging.WARNING):
+        code = enrich(Args(VALID / "minimal.sarif", out=out,
+                           repo_root=tmp_path, context_policy="line"))
+    assert code == 0
+    data = json.loads(out.read_text())
+    assert data["findings"][0]["code"] is None
+    assert "SWB_MAX_SOURCE_MB" in caplog.text
