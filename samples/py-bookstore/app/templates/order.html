@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Order #{{ order.id }} — py-bookstore{% endblock %}
+{% block content %}
+  <h2>Order #{{ order.id }}</h2>
+  <table class="order">
+    <tr><th>User ID</th><td>{{ order.user_id }}</td></tr>
+    <tr><th>Book ID</th><td>{{ order.book_id }}</td></tr>
+    <tr><th>Total price</th><td>${{ order.total_price }}</td></tr>
+    <tr><th>Discount</th><td>{{ order.discount }}</td></tr>
+    <tr><th>Status</th><td>{{ order.status }}</td></tr>
+    <tr><th>Created</th><td>{{ order.created_at }}</td></tr>
+  </table>
+
+  <p>
+    <a href="/orders/{{ order.id }}/receipt.pdf">Download PDF receipt</a>
+  </p>
+{% endblock %}

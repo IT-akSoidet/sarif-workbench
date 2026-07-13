@@ -1,0 +1,9 @@
+.venv/
+venv/
+env/
+__pycache__/
+node_modules/
+*.pyc
+report.sarif
+bookstore.db
+*.sqlite3

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}{{ book.title }} — py-bookstore{% endblock %}
+{% block content %}
+  <article class="book">
+    <h2>{{ book.title }}</h2>
+    <p class="author">by {{ book.author }}</p>
+    <p class="price">${{ book.price }}</p>
+    <p class="description">{{ book.description }}</p>
+    {% if book.cover_url %}
+      <img src="{{ book.cover_url }}" alt="cover">
+    {% endif %}
+  </article>
+
+  <section class="reviews">
+    <h3>Reviews</h3>
+    <ul>
+      {% for r in reviews %}
+        <li>
+          <!-- VULN: CWE-79 — review text rendered unescaped via `safe`
+               (stored XSS). -->
+          {{ r.text|safe }}
+          <small>({{ r.created_at }})</small>
+        </li>
+      {% endfor %}
+    </ul>
+
+    <form action="/books/{{ book.id }}/reviews" method="post">
+      <textarea name="text" placeholder="Write a review"></textarea>
+      <button type="submit">Submit</button>
+    </form>
+  </section>
+{% endblock %}

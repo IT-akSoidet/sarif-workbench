@@ -1,0 +1,22 @@
+# VULN: CWE-1104 — Use of Unmaintained / Known-Vulnerable Third-Party Components.
+# Namely pinned OLD versions of Flask and Pillow on purpose.
+#
+# Flask==1.1.4 pulls Werkzeug 1.0.x / Jinja2 2.11.x — old stack with known advisories.
+#   Confirmed: CVE-2023-30861 — session cookie leakage caused by a missing
+#   "Vary: Cookie" header, allowing a cached response with one user's cookie to
+#   be served to another user.
+# Pillow==8.0.0 — confirmed primary example:
+#   CVE-2021-25293 — out-of-bounds / buffer overflow in Convert.c.
+#   Additional confirmed CVEs illustrated by this version:
+#     CVE-2021-25287, CVE-2021-25288 (out-of-bounds read in J2K),
+#     CVE-2021-25289, CVE-2021-25290,
+#     CVE-2021-27921, CVE-2021-27922, CVE-2021-27923 (DoS via crafted images).
+Flask==1.1.4
+Jinja2==2.11.3
+MarkupSafe==1.1.1
+itsdangerous==1.1.0
+Werkzeug==1.0.1
+Pillow==8.0.0
+PyJWT==2.4.0
+requests==2.25.1
+flask-cors==3.0.9

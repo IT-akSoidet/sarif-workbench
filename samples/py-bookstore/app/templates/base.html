@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}py-bookstore{% endblock %}</title>
+</head>
+<body>
+  <header>
+    <h1><a href="/">py-bookstore</a></h1>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/search?q=">Search</a>
+    </nav>
+    <div class="user">
+      {% if username %}
+        <!-- VULN: CWE-79 — username from the session rendered unescaped in
+             the site header via the `safe` filter (reflected/stored XSS). -->
+        Signed in as {{ username|safe }}
+      {% else %}
+        <span>Not signed in</span>
+      {% endif %}
+    </div>
+  </header>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer>
+    <p>Intentionally vulnerable demo app — SAST benchmark.</p>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  bookstore:
+    build: .
+    container_name: py-bookstore
+    ports:
+      - "5050:5050"
+    environment:
+      - FLASK_APP=app.main
+      - PYTHONUNBUFFERED=1
+    # Mount source for live editing during the study; comment out for an
+    # immutable image.
+    volumes:
+      - ./:/app
+    command: python -m app.main

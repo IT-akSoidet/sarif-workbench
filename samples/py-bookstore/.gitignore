@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyo
+*.sqlite3
+*.db
+bookstore.db
+.venv/
+venv/
+env/
+node_modules/
+report.sarif
+*.pdf
+*.csv
+.DS_Store
+.idea/
+.vscode/
