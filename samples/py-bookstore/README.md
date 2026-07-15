@@ -117,3 +117,59 @@ This keeps `orders.py` at exactly 12 findings while the three dedicated
    `search.py` exactly where the study expects them.
 4. All findings are `vulnerable`-only; no safe/fixed variants are included yet
    (that is a later task).
+
+## Version 2 findings (10 new, additive)
+
+Version 2 adds **10 more, separate vulnerabilities** on top of the 30 v1
+findings. **None of the 30 v1 findings were modified** — v2 is pure addition
+(new functions, new routes, two new files, plus one added `CSRFProtect(app)`
+line in `main.py`). Each v2 finding is marked with a `# VULN v2: CWE-XXX`
+comment so reviewers can tell the new batch apart from the original 30.
+
+Line numbers are approximate (grep `VULN v2: CWE` to re-locate).
+
+| # | CWE | File | ~Line | Description |
+|---|-----|------|-------|-------------|
+| 31 | CWE-352 | app/main.py (+ app/config.py) | 24 | CSRF: `CSRFProtect(app)` is now initialised, so the previously-dead `WTF_CSRF_ENABLED = False` takes real effect; forms carry no `csrf_token`, so state-changing POSTs are CSRF-exploitable |
+| 32 | CWE-22 | app/orders.py | 247 | Path traversal — `GET /orders/<id>/download?file=` reads `"/tmp/" + filename` via `send_file`, no `../` sanitization |
+| 33 | CWE-434 | app/orders.py | 268 | Unrestricted upload — `POST /books/<id>/cover/upload` saves the uploaded file under its client-supplied name with no extension/MIME check |
+| 34 | CWE-522 | app/payments.py (+ payment_cards table) | 30 | Insufficiently protected credentials — `POST /payment/save-card` stores the card token in plaintext |
+| 35 | CWE-798 | app/payments.py | 15 | Hardcoded credentials — `PAYMENT_GATEWAY_API_KEY` (fake `sk_live_…` key) hardcoded in source |
+| 36 | CWE-640 | app/auth.py | 198 / 219 | Weak password recovery — `POST /password-reset/request` + `/verify` use a low-entropy secret question/answer, plaintext string compare, no attempt limit/lockout/delay |
+| 37 | CWE-306 | app/admin.py | 47 | Missing authentication — `POST /admin/books/bulk-delete` deletes books with no auth/`is_admin` check at all |
+| 38 | CWE-915 | app/profile.py | 34 | Mass assignment — `POST /profile/update` applies the entire request body to the user row (including `is_admin`, `password_hash`) |
+| 39 | CWE-611 | app/admin.py | 76 | XXE — `POST /admin/books/import` parses uploaded XML with `xml.etree.ElementTree.parse()` (external entities not disabled, no `defusedxml`) |
+| 40 | CWE-117 | app/auth.py | 112 | Log injection — failed-login `username` logged via f-string without sanitizing newlines/control chars, enabling forged log lines |
+
+### CWE-778 (v1) vs CWE-117 (v2)
+
+CWE-778 (v1, in `auth.py`, "failed logins are never logged — finding through
+absence") is **deliberately left untouched**: its `# VULN: CWE-778` comment and
+the surrounding failure path are byte-for-byte unchanged. CWE-117 (v2) is a
+**separate, new finding** added *beside* it: it shows that if you do add logging
+without thinking, the logging itself can be vulnerable (unsanitized,
+attacker-controlled `username` written to the log). The two coexist on purpose
+as distinct study fixtures.
+
+### v2 notes / deviations
+
+1. **`main.py` is the only v1 file whose in-function logic gains a line beyond
+   pure route/table appends** — the `CSRFProtect(app)` init for finding 31, plus
+   the two new blueprint registrations (`payments_bp`, `profile_bp`). As
+   explicitly required by the spec, new routes/tables were also *appended* to
+   `orders.py`, `auth.py`, `admin.py` and `db_init.py`, and a dependency was
+   appended to `requirements.txt`. In every case the change is **additive
+   only**: `git diff` over the v1 files shows insertions and **zero deletions**,
+   so no existing finding was altered. (The spec's summary line "the only change
+   is `CSRFProtect` in `main.py`" is read as "no existing finding modified", not
+   "no v1 file touched", since the per-finding instructions require adding code
+   to those files.)
+2. **`Flask-WTF==0.14.3`** is pinned as the CSRF dependency with an explicit
+   `# TODO: verify compatibility with Flask 1.1.4` marker, per the spec.
+3. **New files:** `app/payments.py` (findings 34, 35) and `app/profile.py`
+   (finding 38); both register their blueprint in `main.py`. `db_init.py` gains
+   a `payment_cards` table via a new `SCHEMA_V2` executed alongside the untouched
+   `SCHEMA`.
+4. **CWE-640 uses two routes** (`/password-reset/request` and `/verify`) for one
+   finding; it reuses the existing, previously-unused `secret_question` /
+   `secret_answer` columns already seeded in `db_init.py`.

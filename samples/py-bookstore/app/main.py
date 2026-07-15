@@ -12,12 +12,21 @@ from app.search import search_bp
 from app.orders import orders_bp
 from app.reviews import reviews_bp
 from app.admin import admin_bp
+from app.payments import payments_bp
+from app.profile import profile_bp
 
 
 def create_app():
     app = Flask(__name__)
     app.config.from_object(ActiveConfig)
     app.secret_key = ActiveConfig.SECRET_KEY
+
+    # VULN v2: CWE-352 (CSRF) — initialising Flask-WTF's CSRFProtect makes the
+    # (previously dead) WTF_CSRF_ENABLED=False from config.py take real effect:
+    # CSRF protection is now wired in but globally turned off, and the app's
+    # forms carry no csrf_token, so every state-changing POST is CSRF-exploitable.
+    from flask_wtf import CSRFProtect
+    csrf = CSRFProtect(app)
 
     # VULN: CWE-942 — permissive CORS: any origin is allowed to make
     # credentialed cross-origin requests (origins from config.CORS_ORIGINS="*").
@@ -29,6 +38,8 @@ def create_app():
     app.register_blueprint(orders_bp)
     app.register_blueprint(reviews_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(payments_bp)
+    app.register_blueprint(profile_bp)
 
     @app.route("/")
     def index():

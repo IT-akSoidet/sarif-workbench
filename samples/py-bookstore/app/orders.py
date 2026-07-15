@@ -235,3 +235,41 @@ def set_cover(book_id):
         "fetched_bytes": content_length,
         "status_code": resp.status_code,
     })
+
+
+# --- v2 additions ----------------------------------------------------------
+
+@orders_bp.route("/orders/<int:order_id>/download")
+def download_order_file(order_id):
+    """Download an attachment associated with an order from /tmp."""
+    from flask import send_file
+
+    # VULN v2: CWE-22 (Path Traversal) — the file name comes straight from the
+    # query string and is concatenated onto /tmp/ with no sanitization, so a
+    # value like "../etc/passwd" escapes the intended directory.
+    filename = request.args.get("file", "")
+    path = "/tmp/" + filename
+    return send_file(path)
+
+
+@orders_bp.route("/books/<int:book_id>/cover/upload", methods=["POST"])
+def upload_cover(book_id):
+    """Upload a book cover as a real file (companion to set_cover's URL fetch)."""
+    if get_book(book_id) is None:
+        return jsonify({"error": "book not found"}), 404
+
+    uploaded = request.files.get("file")
+    if uploaded is None:
+        return jsonify({"error": "no file"}), 400
+
+    upload_dir = os.path.join(os.path.dirname(__file__), "static", "uploads")
+    os.makedirs(upload_dir, exist_ok=True)
+
+    # VULN v2: CWE-434 (Unrestricted Upload) — the file is saved using the
+    # client-supplied filename with no check on extension or MIME type, so an
+    # attacker can upload e.g. a .py/.php/.html payload instead of an image.
+    dest = os.path.join(upload_dir, uploaded.filename)
+    uploaded.save(dest)
+
+    return jsonify({"book_id": book_id, "saved_to": dest,
+                    "filename": uploaded.filename}), 201

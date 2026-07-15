@@ -9,6 +9,7 @@ Intentional findings (see README map):
 """
 
 import hashlib
+import logging
 import time
 
 import jwt
@@ -108,6 +109,11 @@ def login():
     if user is None or user["password_hash"] != hash_password(password):
         # VULN: CWE-778 — failed authentication attempts are NOT logged here.
         # (Finding through absence: no logger call on this failure path.)
+        # VULN v2: CWE-117 (Log Injection) — separate, new finding added beside
+        # the CWE-778 marker above (which is left untouched). The username is
+        # logged without sanitizing newlines/control characters, so an attacker
+        # controlled username can forge additional, fake log lines.
+        logging.warning(f"Failed login attempt for username: {username}")
         return jsonify({"error": "invalid credentials"}), 401
 
     # Establish server-side session.
@@ -175,3 +181,55 @@ def validate_promo():
     if digest in known:
         return jsonify({"valid": True, "discount_percent": known[digest]})
     return jsonify({"valid": False}), 404
+
+
+# --- v2: password recovery -------------------------------------------------
+
+@auth_bp.route("/password-reset/request", methods=["POST"])
+def password_reset_request():
+    """Start a password reset by returning the user's secret question."""
+    data = request.get_json(silent=True) or request.form
+    username = data.get("username", "")
+
+    user = get_user_by_username(username)
+    if user is None:
+        return jsonify({"error": "unknown user"}), 404
+
+    # VULN v2: CWE-640 (Weak Password Recovery Mechanism) — recovery relies
+    # solely on a low-entropy, often publicly-guessable secret question, and the
+    # question is disclosed to any caller that knows the username.
+    return jsonify({"username": username,
+                    "secret_question": user["secret_question"]})
+
+
+@auth_bp.route("/password-reset/verify", methods=["POST"])
+def password_reset_verify():
+    """Verify the secret answer and set a new password if it matches."""
+    from app.models import get_connection
+
+    data = request.get_json(silent=True) or request.form
+    username = data.get("username", "")
+    answer = data.get("secret_answer", "")
+    new_password = data.get("new_password", "")
+
+    user = get_user_by_username(username)
+    if user is None:
+        return jsonify({"error": "unknown user"}), 404
+
+    # VULN v2: CWE-640 (Weak Password Recovery Mechanism) — the secret answer is
+    # compared as a plaintext string with NO attempt limit, lockout, or delay,
+    # so it can be brute-forced; a correct guess immediately resets the password.
+    if answer != user["secret_answer"]:
+        return jsonify({"error": "incorrect answer"}), 403
+
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (hash_password(new_password), user["id"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({"username": username, "password_reset": True})

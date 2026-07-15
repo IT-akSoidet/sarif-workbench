@@ -20,3 +20,6 @@ Pillow==8.0.0
 PyJWT==2.4.0
 requests==2.25.1
 flask-cors==3.0.9
+# v2: enables the CWE-352 finding (CSRFProtect wired in main.py; CSRF globally
+# disabled via WTF_CSRF_ENABLED=False in config.py).
+Flask-WTF==0.14.3  # TODO: verify compatibility with Flask 1.1.4

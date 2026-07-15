@@ -58,6 +58,19 @@ CREATE TABLE reviews (
 """
 
 
+# v2 additions: extra schema created alongside the v1 tables (the existing
+# SCHEMA above is left untouched). See app/payments.py.
+SCHEMA_V2 = """
+DROP TABLE IF EXISTS payment_cards;
+
+CREATE TABLE payment_cards (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    card_token TEXT NOT NULL
+);
+"""
+
+
 def md5(value):
     # Unsalted MD5 — matches the registration hashing finding in auth.py.
     return hashlib.md5(value.encode()).hexdigest()
@@ -112,6 +125,7 @@ def init_db():
     conn = sqlite3.connect(ActiveConfig.DATABASE)
     try:
         conn.executescript(SCHEMA)
+        conn.executescript(SCHEMA_V2)  # v2: payment_cards table
 
         for username, password, email, is_admin, question, answer in USERS:
             conn.execute(

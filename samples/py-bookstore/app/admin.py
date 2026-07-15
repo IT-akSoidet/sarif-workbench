@@ -35,3 +35,50 @@ def admin_book_detail(book_id):
     # VULN: CWE-79 — description passed through `|safe`, disabling escaping
     # in the admin view (stored XSS reflected to the admin).
     return render_template_string(ADMIN_BOOK_TEMPLATE, book=dict(book))
+
+
+# --- v2 additions ----------------------------------------------------------
+
+@admin_bp.route("/admin/books/bulk-delete", methods=["POST"])
+def admin_books_bulk_delete():
+    """Delete every book whose id is in the supplied list."""
+    from app.models import get_connection
+
+    # VULN v2: CWE-306 (Missing Authentication for Critical Function) — this
+    # destructive admin endpoint performs no authentication or is_admin check
+    # whatsoever (no @login_required, no session inspection); any anonymous
+    # caller can wipe the catalog.
+    data = request.get_json(silent=True) or request.form
+    ids = data.get("ids") or []
+    if isinstance(ids, str):
+        ids = [i for i in ids.split(",") if i]
+
+    conn = get_connection()
+    try:
+        for book_id in ids:
+            conn.execute("DELETE FROM books WHERE id = ?", (book_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({"deleted": ids, "count": len(ids)})
+
+
+@admin_bp.route("/admin/books/import", methods=["POST"])
+def admin_books_import():
+    """Bulk-import books from an uploaded XML document."""
+    import xml.etree.ElementTree as ET
+
+    uploaded = request.files.get("file")
+    if uploaded is None:
+        return jsonify({"error": "no file"}), 400
+
+    # VULN v2: CWE-611 (XXE) — the XML is parsed with the stdlib
+    # xml.etree.ElementTree parser, which resolves external entities and does
+    # not use defusedxml. A document with a crafted <!DOCTYPE ... SYSTEM ...>
+    # can read local files or trigger SSRF.
+    tree = ET.parse(uploaded)
+    root = tree.getroot()
+
+    titles = [node.findtext("title") for node in root.findall("book")]
+    return jsonify({"imported": titles, "count": len(titles)})
