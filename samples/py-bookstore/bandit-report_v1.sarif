@@ -1,0 +1,1035 @@
+{
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Bandit",
+          "organization": "PyCQA",
+          "rules": [
+            {
+              "id": "B324",
+              "name": "hashlib",
+              "properties": {
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-327"
+                ],
+                "precision": "high"
+              },
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/plugins/b324_hashlib.html"
+            },
+            {
+              "id": "B105",
+              "name": "hardcoded_password_string",
+              "properties": {
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-259"
+                ],
+                "precision": "medium"
+              },
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/plugins/b105_hardcoded_password_string.html"
+            },
+            {
+              "id": "B104",
+              "name": "hardcoded_bind_all_interfaces",
+              "properties": {
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-605"
+                ],
+                "precision": "medium"
+              },
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/plugins/b104_hardcoded_bind_all_interfaces.html"
+            },
+            {
+              "id": "B403",
+              "name": "blacklist",
+              "properties": {
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-502"
+                ],
+                "precision": "high"
+              },
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b403-import-pickle"
+            },
+            {
+              "id": "B404",
+              "name": "blacklist",
+              "properties": {
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-78"
+                ],
+                "precision": "high"
+              },
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_imports.html#b404-import-subprocess"
+            },
+            {
+              "id": "B108",
+              "name": "hardcoded_tmp_directory",
+              "properties": {
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-377"
+                ],
+                "precision": "medium"
+              },
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/plugins/b108_hardcoded_tmp_directory.html"
+            },
+            {
+              "id": "B605",
+              "name": "start_process_with_a_shell",
+              "properties": {
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-78"
+                ],
+                "precision": "high"
+              },
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/plugins/b605_start_process_with_a_shell.html"
+            },
+            {
+              "id": "B608",
+              "name": "hardcoded_sql_expressions",
+              "properties": {
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-89"
+                ],
+                "precision": "low"
+              },
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/plugins/b608_hardcoded_sql_expressions.html"
+            },
+            {
+              "id": "B602",
+              "name": "subprocess_popen_with_shell_equals_true",
+              "properties": {
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-78"
+                ],
+                "precision": "high"
+              },
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/plugins/b602_subprocess_popen_with_shell_equals_true.html"
+            },
+            {
+              "id": "B301",
+              "name": "blacklist",
+              "properties": {
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-502"
+                ],
+                "precision": "high"
+              },
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/blacklists/blacklist_calls.html#b301-pickle"
+            },
+            {
+              "id": "B113",
+              "name": "request_without_timeout",
+              "properties": {
+                "tags": [
+                  "security",
+                  "external/cwe/cwe-400"
+                ],
+                "precision": "low"
+              },
+              "helpUri": "https://bandit.readthedocs.io/en/1.9.4/plugins/b113_request_without_timeout.html"
+            }
+          ],
+          "version": "1.9.4",
+          "semanticVersion": "1.9.4"
+        }
+      },
+      "invocations": [
+        {
+          "executionSuccessful": true,
+          "endTimeUtc": "2026-07-10T13:16:07Z"
+        }
+      ],
+      "properties": {
+        "metrics": {
+          "_totals": {
+            "loc": 660,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "CONFIDENCE.UNDEFINED": 0,
+            "SEVERITY.LOW": 3,
+            "CONFIDENCE.LOW": 6,
+            "SEVERITY.MEDIUM": 10,
+            "CONFIDENCE.MEDIUM": 4,
+            "SEVERITY.HIGH": 7,
+            "CONFIDENCE.HIGH": 10
+          },
+          "app/__init__.py": {
+            "loc": 6,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 0,
+            "SEVERITY.MEDIUM": 0,
+            "SEVERITY.HIGH": 0,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 0,
+            "CONFIDENCE.MEDIUM": 0,
+            "CONFIDENCE.HIGH": 0
+          },
+          "app/admin.py": {
+            "loc": 25,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 0,
+            "SEVERITY.MEDIUM": 0,
+            "SEVERITY.HIGH": 0,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 0,
+            "CONFIDENCE.MEDIUM": 0,
+            "CONFIDENCE.HIGH": 0
+          },
+          "app/auth.py": {
+            "loc": 112,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 0,
+            "SEVERITY.MEDIUM": 0,
+            "SEVERITY.HIGH": 3,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 0,
+            "CONFIDENCE.MEDIUM": 0,
+            "CONFIDENCE.HIGH": 3
+          },
+          "app/config.py": {
+            "loc": 16,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 1,
+            "SEVERITY.MEDIUM": 0,
+            "SEVERITY.HIGH": 0,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 0,
+            "CONFIDENCE.MEDIUM": 1,
+            "CONFIDENCE.HIGH": 0
+          },
+          "app/db_init.py": {
+            "loc": 120,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 0,
+            "SEVERITY.MEDIUM": 0,
+            "SEVERITY.HIGH": 1,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 0,
+            "CONFIDENCE.MEDIUM": 0,
+            "CONFIDENCE.HIGH": 1
+          },
+          "app/main.py": {
+            "loc": 35,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 0,
+            "SEVERITY.MEDIUM": 1,
+            "SEVERITY.HIGH": 0,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 0,
+            "CONFIDENCE.MEDIUM": 1,
+            "CONFIDENCE.HIGH": 0
+          },
+          "app/models.py": {
+            "loc": 111,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 0,
+            "SEVERITY.MEDIUM": 0,
+            "SEVERITY.HIGH": 0,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 0,
+            "CONFIDENCE.MEDIUM": 0,
+            "CONFIDENCE.HIGH": 0
+          },
+          "app/orders.py": {
+            "loc": 157,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 2,
+            "SEVERITY.MEDIUM": 5,
+            "SEVERITY.HIGH": 3,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 2,
+            "CONFIDENCE.MEDIUM": 2,
+            "CONFIDENCE.HIGH": 6
+          },
+          "app/reviews.py": {
+            "loc": 20,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 0,
+            "SEVERITY.MEDIUM": 0,
+            "SEVERITY.HIGH": 0,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 0,
+            "CONFIDENCE.MEDIUM": 0,
+            "CONFIDENCE.HIGH": 0
+          },
+          "app/search.py": {
+            "loc": 58,
+            "nosec": 0,
+            "skipped_tests": 0,
+            "SEVERITY.UNDEFINED": 0,
+            "SEVERITY.LOW": 0,
+            "SEVERITY.MEDIUM": 4,
+            "SEVERITY.HIGH": 0,
+            "CONFIDENCE.UNDEFINED": 0,
+            "CONFIDENCE.LOW": 4,
+            "CONFIDENCE.MEDIUM": 0,
+            "CONFIDENCE.HIGH": 0
+          }
+        }
+      },
+      "results": [
+        {
+          "message": {
+            "text": "Use of weak MD5 hash for security. Consider usedforsecurity=False"
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    return hashlib.md5(password.encode()).hexdigest()\n"
+                  },
+                  "endColumn": 42,
+                  "endLine": 27,
+                  "startColumn": 12,
+                  "startLine": 27
+                },
+                "artifactLocation": {
+                  "uri": "app/auth.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "    # VULN: CWE-327 \u2014 password hashed with unsalted MD5 on registration.\n    return hashlib.md5(password.encode()).hexdigest()\n\n"
+                  },
+                  "endLine": 28,
+                  "startLine": 26
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "HIGH",
+            "issue_severity": "HIGH"
+          },
+          "ruleId": "B324",
+          "ruleIndex": 0
+        },
+        {
+          "message": {
+            "text": "Use of weak MD5 hash for security. Consider usedforsecurity=False"
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    return hashlib.md5(raw.encode()).hexdigest()\n"
+                  },
+                  "endColumn": 37,
+                  "endLine": 34,
+                  "startColumn": 12,
+                  "startLine": 34
+                },
+                "artifactLocation": {
+                  "uri": "app/auth.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "    raw = \"%s:%s\" % (user_id, int(time.time()))\n    return hashlib.md5(raw.encode()).hexdigest()\n\n"
+                  },
+                  "endLine": 35,
+                  "startLine": 33
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "HIGH",
+            "issue_severity": "HIGH"
+          },
+          "ruleId": "B324",
+          "ruleIndex": 0
+        },
+        {
+          "message": {
+            "text": "Use of weak MD5 hash for security. Consider usedforsecurity=False"
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    return hashlib.md5(code.encode()).hexdigest()\n"
+                  },
+                  "endColumn": 38,
+                  "endLine": 39,
+                  "startColumn": 12,
+                  "startLine": 39
+                },
+                "artifactLocation": {
+                  "uri": "app/auth.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "    # VULN: CWE-327 \u2014 promo code validity is checked via MD5 digest.\n    return hashlib.md5(code.encode()).hexdigest()\n\n"
+                  },
+                  "endLine": 40,
+                  "startLine": 38
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "HIGH",
+            "issue_severity": "HIGH"
+          },
+          "ruleId": "B324",
+          "ruleIndex": 0
+        },
+        {
+          "message": {
+            "text": "Possible hardcoded password: 'dev-secret-key-change-me'"
+          },
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    SECRET_KEY = \"dev-secret-key-change-me\"\n"
+                  },
+                  "endColumn": 44,
+                  "endLine": 11,
+                  "startColumn": 18,
+                  "startLine": 11
+                },
+                "artifactLocation": {
+                  "uri": "app/config.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "    # Predictable key allows session/cookie forgery.\n    SECRET_KEY = \"dev-secret-key-change-me\"\n\n"
+                  },
+                  "endLine": 12,
+                  "startLine": 10
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "MEDIUM",
+            "issue_severity": "LOW"
+          },
+          "ruleId": "B105",
+          "ruleIndex": 1
+        },
+        {
+          "message": {
+            "text": "Use of weak MD5 hash for security. Consider usedforsecurity=False"
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    return hashlib.md5(value.encode()).hexdigest()\n"
+                  },
+                  "endColumn": 39,
+                  "endLine": 63,
+                  "startColumn": 12,
+                  "startLine": 63
+                },
+                "artifactLocation": {
+                  "uri": "app/db_init.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "    # Unsalted MD5 \u2014 matches the registration hashing finding in auth.py.\n    return hashlib.md5(value.encode()).hexdigest()\n\n"
+                  },
+                  "endLine": 64,
+                  "startLine": 62
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "HIGH",
+            "issue_severity": "HIGH"
+          },
+          "ruleId": "B324",
+          "ruleIndex": 0
+        },
+        {
+          "message": {
+            "text": "Possible binding to all interfaces."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    app.run(host=\"0.0.0.0\", port=5050, debug=ActiveConfig.DEBUG)\n"
+                  },
+                  "endColumn": 27,
+                  "endLine": 55,
+                  "startColumn": 18,
+                  "startLine": 55
+                },
+                "artifactLocation": {
+                  "uri": "app/main.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "    # Port 5050 (not 5000). debug pulled from the \"production\" config (True).\n    app.run(host=\"0.0.0.0\", port=5050, debug=ActiveConfig.DEBUG)\n"
+                  },
+                  "endLine": 55,
+                  "startLine": 54
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "MEDIUM",
+            "issue_severity": "MEDIUM"
+          },
+          "ruleId": "B104",
+          "ruleIndex": 2
+        },
+        {
+          "message": {
+            "text": "Consider possible security implications associated with pickle module."
+          },
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "import pickle\n"
+                  },
+                  "endColumn": 14,
+                  "endLine": 15,
+                  "startColumn": 1,
+                  "startLine": 15
+                },
+                "artifactLocation": {
+                  "uri": "app/orders.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "import os\nimport pickle\nimport subprocess\n"
+                  },
+                  "endLine": 16,
+                  "startLine": 14
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "HIGH",
+            "issue_severity": "LOW"
+          },
+          "ruleId": "B403",
+          "ruleIndex": 3
+        },
+        {
+          "message": {
+            "text": "Consider possible security implications associated with the subprocess module."
+          },
+          "level": "note",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "import subprocess\n"
+                  },
+                  "endColumn": 18,
+                  "endLine": 16,
+                  "startColumn": 1,
+                  "startLine": 16
+                },
+                "artifactLocation": {
+                  "uri": "app/orders.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "import pickle\nimport subprocess\n\n"
+                  },
+                  "endLine": 17,
+                  "startLine": 15
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "HIGH",
+            "issue_severity": "LOW"
+          },
+          "ruleId": "B404",
+          "ruleIndex": 4
+        },
+        {
+          "message": {
+            "text": "Probable insecure usage of temp file/directory."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    output = \"/tmp/receipt_%s.pdf\" % order_id\n"
+                  },
+                  "endColumn": 35,
+                  "endLine": 149,
+                  "startColumn": 14,
+                  "startLine": 149
+                },
+                "artifactLocation": {
+                  "uri": "app/orders.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "    # into a shell command run with shell=True.\n    output = \"/tmp/receipt_%s.pdf\" % order_id\n    cmd = \"wkhtmltopdf http://localhost:5050/orders/%s '%s'\" % (order_id, output)\n"
+                  },
+                  "endLine": 150,
+                  "startLine": 148
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "MEDIUM",
+            "issue_severity": "MEDIUM"
+          },
+          "ruleId": "B108",
+          "ruleIndex": 5
+        },
+        {
+          "message": {
+            "text": "Starting a process with a shell, possible injection detected, security issue."
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    os.system(cmd)\n"
+                  },
+                  "endColumn": 19,
+                  "endLine": 151,
+                  "startColumn": 5,
+                  "startLine": 151
+                },
+                "artifactLocation": {
+                  "uri": "app/orders.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "    cmd = \"wkhtmltopdf http://localhost:5050/orders/%s '%s'\" % (order_id, output)\n    os.system(cmd)\n    return jsonify({\"generated\": output, \"cmd\": cmd})\n"
+                  },
+                  "endLine": 152,
+                  "startLine": 150
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "HIGH",
+            "issue_severity": "HIGH"
+          },
+          "ruleId": "B605",
+          "ruleIndex": 6
+        },
+        {
+          "message": {
+            "text": "Possible SQL injection vector through string-based query construction."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    cmd = \"sqlite3 -csv bookstore.db 'SELECT * FROM orders;' > /tmp/%s\" % filename\n"
+                  },
+                  "endColumn": 72,
+                  "endLine": 161,
+                  "startColumn": 11,
+                  "startLine": 161
+                },
+                "artifactLocation": {
+                  "uri": "app/orders.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "    # (subprocess with shell=True).\n    cmd = \"sqlite3 -csv bookstore.db 'SELECT * FROM orders;' > /tmp/%s\" % filename\n    subprocess.call(cmd, shell=True)\n"
+                  },
+                  "endLine": 162,
+                  "startLine": 160
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "LOW",
+            "issue_severity": "MEDIUM"
+          },
+          "ruleId": "B608",
+          "ruleIndex": 7
+        },
+        {
+          "message": {
+            "text": "subprocess call with shell=True identified, security issue."
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    subprocess.call(cmd, shell=True)\n"
+                  },
+                  "endColumn": 37,
+                  "endLine": 162,
+                  "startColumn": 5,
+                  "startLine": 162
+                },
+                "artifactLocation": {
+                  "uri": "app/orders.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "    cmd = \"sqlite3 -csv bookstore.db 'SELECT * FROM orders;' > /tmp/%s\" % filename\n    subprocess.call(cmd, shell=True)\n    return jsonify({\"exported_to\": \"/tmp/%s\" % filename, \"cmd\": cmd})\n"
+                  },
+                  "endLine": 163,
+                  "startLine": 161
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "HIGH",
+            "issue_severity": "HIGH"
+          },
+          "ruleId": "B602",
+          "ruleIndex": 8
+        },
+        {
+          "message": {
+            "text": "Probable insecure usage of temp file/directory."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    return jsonify({\"exported_to\": \"/tmp/%s\" % filename, \"cmd\": cmd})\n"
+                  },
+                  "endColumn": 45,
+                  "endLine": 163,
+                  "startColumn": 36,
+                  "startLine": 163
+                },
+                "artifactLocation": {
+                  "uri": "app/orders.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "    subprocess.call(cmd, shell=True)\n    return jsonify({\"exported_to\": \"/tmp/%s\" % filename, \"cmd\": cmd})\n\n"
+                  },
+                  "endLine": 164,
+                  "startLine": 162
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "MEDIUM",
+            "issue_severity": "MEDIUM"
+          },
+          "ruleId": "B108",
+          "ruleIndex": 5
+        },
+        {
+          "message": {
+            "text": "subprocess call with shell=True identified, security issue."
+          },
+          "level": "error",
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    subprocess.Popen(cmd, shell=True)\n"
+                  },
+                  "endColumn": 38,
+                  "endLine": 173,
+                  "startColumn": 5,
+                  "startLine": 173
+                },
+                "artifactLocation": {
+                  "uri": "app/orders.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "    cmd = \"echo 'Shipping order %s: %s' >> /tmp/labels.log\" % (order_id, label)\n    subprocess.Popen(cmd, shell=True)\n    return jsonify({\"queued\": order_id, \"cmd\": cmd})\n"
+                  },
+                  "endLine": 174,
+                  "startLine": 172
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "HIGH",
+            "issue_severity": "HIGH"
+          },
+          "ruleId": "B602",
+          "ruleIndex": 8
+        },
+        {
+          "message": {
+            "text": "Pickle and modules that wrap it can be unsafe when used to deserialize untrusted data, possible security issue."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "        return pickle.loads(base64.b64decode(raw))\n"
+                  },
+                  "endColumn": 51,
+                  "endLine": 210,
+                  "startColumn": 16,
+                  "startLine": 210
+                },
+                "artifactLocation": {
+                  "uri": "app/orders.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "        # a crafted cookie leads to RCE.\n        return pickle.loads(base64.b64decode(raw))\n    except Exception:\n"
+                  },
+                  "endLine": 211,
+                  "startLine": 209
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "HIGH",
+            "issue_severity": "MEDIUM"
+          },
+          "ruleId": "B301",
+          "ruleIndex": 9
+        },
+        {
+          "message": {
+            "text": "Call to requests without timeout"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "    resp = requests.get(image_url)\n"
+                  },
+                  "endColumn": 35,
+                  "endLine": 228,
+                  "startColumn": 12,
+                  "startLine": 228
+                },
+                "artifactLocation": {
+                  "uri": "app/orders.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "    # with no validation (localhost / internal IPs / redirects not blocked).\n    resp = requests.get(image_url)\n    content_length = len(resp.content)\n"
+                  },
+                  "endLine": 229,
+                  "startLine": 227
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "LOW",
+            "issue_severity": "MEDIUM"
+          },
+          "ruleId": "B113",
+          "ruleIndex": 10
+        },
+        {
+          "message": {
+            "text": "Possible SQL injection vector through string-based query construction."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "        query = \"SELECT * FROM books WHERE title LIKE '%\" + title + \"%'\"\n"
+                  },
+                  "endColumn": 58,
+                  "endLine": 23,
+                  "startColumn": 17,
+                  "startLine": 23
+                },
+                "artifactLocation": {
+                  "uri": "app/search.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "        # VULN: CWE-89 \u2014 user input concatenated straight into the SQL string.\n        query = \"SELECT * FROM books WHERE title LIKE '%\" + title + \"%'\"\n        rows = conn.execute(query).fetchall()\n"
+                  },
+                  "endLine": 24,
+                  "startLine": 22
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "LOW",
+            "issue_severity": "MEDIUM"
+          },
+          "ruleId": "B608",
+          "ruleIndex": 7
+        },
+        {
+          "message": {
+            "text": "Possible SQL injection vector through string-based query construction."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "        query = f\"SELECT * FROM books WHERE author = '{author}'\"\n"
+                  },
+                  "endColumn": 55,
+                  "endLine": 42,
+                  "startColumn": 19,
+                  "startLine": 42
+                },
+                "artifactLocation": {
+                  "uri": "app/search.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "        # VULN: CWE-89 \u2014 f-string interpolation of user input into SQL.\n        query = f\"SELECT * FROM books WHERE author = '{author}'\"\n        rows = conn.execute(query).fetchall()\n"
+                  },
+                  "endLine": 43,
+                  "startLine": 41
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "LOW",
+            "issue_severity": "MEDIUM"
+          },
+          "ruleId": "B608",
+          "ruleIndex": 7
+        },
+        {
+          "message": {
+            "text": "Possible SQL injection vector through string-based query construction."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "        query = \"SELECT * FROM reviews WHERE book_id = \" + book_id\n"
+                  },
+                  "endColumn": 57,
+                  "endLine": 59,
+                  "startColumn": 17,
+                  "startLine": 59
+                },
+                "artifactLocation": {
+                  "uri": "app/search.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "        # directly, allowing injection despite \"looking\" numeric.\n        query = \"SELECT * FROM reviews WHERE book_id = \" + book_id\n        rows = conn.execute(query).fetchall()\n"
+                  },
+                  "endLine": 60,
+                  "startLine": 58
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "LOW",
+            "issue_severity": "MEDIUM"
+          },
+          "ruleId": "B608",
+          "ruleIndex": 7
+        },
+        {
+          "message": {
+            "text": "Possible SQL injection vector through string-based query construction."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "region": {
+                  "snippet": {
+                    "text": "        query = f\"SELECT * FROM promo_codes WHERE code = '{code}'\"\n"
+                  },
+                  "endColumn": 59,
+                  "endLine": 76,
+                  "startColumn": 19,
+                  "startLine": 76
+                },
+                "artifactLocation": {
+                  "uri": "app/search.py"
+                },
+                "contextRegion": {
+                  "snippet": {
+                    "text": "        # (promo_codes may not exist as a table; the tainted query is the point.)\n        query = f\"SELECT * FROM promo_codes WHERE code = '{code}'\"\n        try:\n"
+                  },
+                  "endLine": 77,
+                  "startLine": 75
+                }
+              }
+            }
+          ],
+          "properties": {
+            "issue_confidence": "LOW",
+            "issue_severity": "MEDIUM"
+          },
+          "ruleId": "B608",
+          "ruleIndex": 7
+        }
+      ]
+    }
+  ],
+  "version": "2.1.0",
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json"
+}
