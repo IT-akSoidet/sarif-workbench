@@ -77,6 +77,10 @@ def lookup_promo():
         try:
             rows = conn.execute(query).fetchall()
         except Exception as exc:  # table may be absent; injection sink still present
+            # VULN v4: CWE-550/CWE-209 (Server-generated Error Message Containing
+            # Sensitive Information) — the raw DB exception text AND the fully
+            # built SQL query are returned to the client, disclosing schema and
+            # internal query structure.
             return jsonify({"error": str(exc), "query": query}), 400
     finally:
         conn.close()

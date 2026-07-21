@@ -28,5 +28,33 @@
       <textarea name="text" placeholder="Write a review"></textarea>
       <button type="submit">Submit</button>
     </form>
+
+    <!-- VULN v5: CWE-352 (CSRF) — review deletion is a destructive POST with no
+         csrf_token, so any third-party page can trigger it. -->
+    <form action="/books/{{ book.id }}/reviews/delete" method="post">
+      <button type="submit">Delete all reviews</button>
+    </form>
+
+    <!-- VULN v5: CWE-79 — `javascript:` URL built by concatenating untrusted
+         book data directly into executable script context. -->
+    <a href="javascript:shareBook('{{ book.title }}')">Share this book</a>
   </section>
+
+  <div id="preview"></div>
+  <script>
+    function shareBook(title) {
+      // VULN v5: CWE-79 (DOM-based XSS) — the title is injected via innerHTML.
+      document.getElementById("preview").innerHTML =
+        "<h4>Sharing: " + title + "</h4>";
+    }
+
+    // VULN v5: CWE-79 — the raw, server-supplied description is assigned to
+    // innerHTML, so stored HTML/script in the product description executes.
+    var description = {{ book.description|tojson }};
+    document.getElementById("preview").innerHTML += description;
+
+    // VULN v5: CWE-922 — the cart contents (including the pickled cart cookie)
+    // are mirrored into localStorage for "offline" use.
+    localStorage.setItem("cart_snapshot", document.cookie);
+  </script>
 {% endblock %}

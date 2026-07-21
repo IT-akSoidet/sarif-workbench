@@ -273,3 +273,85 @@ def upload_cover(book_id):
 
     return jsonify({"book_id": book_id, "saved_to": dest,
                     "filename": uploaded.filename}), 201
+
+
+# --- v3 additions ----------------------------------------------------------
+
+@orders_bp.route("/orders/<int:order_id>/total")
+def order_total(order_id):
+    """Return the per-unit total for an order (quantity-adjusted)."""
+    import traceback
+
+    quantity = request.args.get("quantity", "0")
+    order = get_order(order_id)
+    if order is None:
+        return jsonify({"error": "not found"}), 404
+
+    try:
+        # A divide-by-zero / bad-cast here raises, and the handler below leaks
+        # the details back to the caller.
+        unit = order["total_price"] / int(quantity)
+        return jsonify({"order_id": order_id, "unit_price": unit})
+    except Exception as exc:
+        # VULN v3: CWE-209 (Generation of Error Message Containing Sensitive
+        # Information) — the full exception text and stack trace (internal file
+        # paths, SQL, variable state) are returned verbatim in the HTTP
+        # response instead of a generic error. Combined with DEBUG=True this is
+        # a rich information leak.
+        return jsonify({
+            "error": str(exc),
+            "traceback": traceback.format_exc(),
+        }), 500
+
+
+# --- v4 additions ----------------------------------------------------------
+
+@orders_bp.route("/orders/discount/apply", methods=["POST"])
+def apply_discount_rule():
+    """Apply a discount described by a small arithmetic rule expression."""
+    data = request.get_json(silent=True) or request.form
+    base = data.get("base", 0)
+    rule = data.get("rule", "0")
+
+    # VULN v4: CWE-95 (Eval Injection) — the client-supplied `rule` string is
+    # evaluated with eval(). A payload like `__import__('os').system('id')`
+    # executes arbitrary code on the server.
+    final = eval("%s" % rule, {"base": base})
+    return jsonify({"base": base, "final": final})
+
+
+@orders_bp.route("/orders/<int:order_id>/export-receipt")
+def export_receipt(order_id):
+    """Write a receipt to a temp file and return its path."""
+    order = get_order(order_id)
+    if order is None:
+        return jsonify({"error": "not found"}), 404
+
+    # VULN v4: CWE-377 (Insecure Temporary File) — a predictable, world-visible
+    # path in the shared /tmp directory is used (no mkstemp, no random suffix,
+    # no O_EXCL), so an attacker can pre-create/symlink it or read another
+    # user's receipt.
+    path = "/tmp/receipt_export_%d.txt" % order_id
+    with open(path, "w") as fh:
+        fh.write("Receipt for order %d: %s\n" % (order_id, order["total_price"]))
+
+    # VULN v4: CWE-732 (Incorrect Permission Assignment for Critical Resource) —
+    # the receipt file is made world-readable AND world-writable (0o777), so any
+    # local user can read or tamper with it.
+    os.chmod(path, 0o777)
+
+    return jsonify({"written_to": path})
+
+
+@orders_bp.route("/orders/track")
+def track_order():
+    """Redirect to a carrier tracking page and echo the carrier in a header."""
+    carrier = request.args.get("carrier", "")
+
+    resp = make_response(jsonify({"tracking": True}))
+    # VULN v4: CWE-113 (HTTP Response Splitting / CRLF Injection) — a
+    # user-controlled value is written straight into a response header. Embedded
+    # CR/LF characters let an attacker inject additional headers or split the
+    # response body.
+    resp.headers["X-Tracking-Carrier"] = carrier
+    return resp

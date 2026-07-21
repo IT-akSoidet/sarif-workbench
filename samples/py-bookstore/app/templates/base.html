@@ -3,6 +3,21 @@
 <head>
   <meta charset="utf-8">
   <title>{% block title %}py-bookstore{% endblock %}</title>
+  <!-- VULN v3: CWE-829 — third-party script loaded from an external CDN with
+       no Subresource Integrity (no integrity=/crossorigin= attributes). If the
+       CDN is compromised or MITM'd, arbitrary JS runs in every page. -->
+  <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+  <!-- VULN v5: CWE-829/CWE-353 — second third-party script pulled from a CDN
+       with no Subresource Integrity attribute. -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.0/dist/js/bootstrap.bundle.min.js"></script>
+  <!-- VULN v5: CWE-829/CWE-353 — remote stylesheet with no integrity hash. -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.0/dist/css/bootstrap.min.css">
+  <!-- VULN v5: CWE-319 (Cleartext Transmission of Sensitive Information) —
+       analytics script fetched over plaintext HTTP, so it can be intercepted
+       and rewritten by any network attacker (and it downgrades the page). -->
+  <script src="http://analytics.example.com/tracker.js"></script>
+  <script src="/static/js/app.js"></script>
+  <script src="/static/js/checkout.js"></script>
 </head>
 <body>
   <header>
@@ -28,6 +43,58 @@
 
   <footer>
     <p>Intentionally vulnerable demo app — SAST benchmark.</p>
+    <p id="last-query"></p>
+    <p id="calc-out"></p>
+
+    <!-- VULN v5: CWE-1022 (Web Link to Untrusted Target with window.opener
+         Access) — target="_blank" without rel="noopener noreferrer", so the
+         opened page can rewrite this tab via window.opener (reverse
+         tabnabbing). The URL is also plaintext HTTP (CWE-319). -->
+    <a href="http://blog.example.com/security" target="_blank">Our blog</a>
+    <a href="http://partners.example.com/deals" target="_blank">Partner deals</a>
+
+    <!-- VULN v5: CWE-1021 (Improper Restriction of Rendered UI Layers or
+         Frames) — third-party widget embedded with no `sandbox` attribute and
+         no referrer policy, so the framed origin runs with full privileges. -->
+    <iframe src="http://widgets.example.com/promo" width="300" height="100"></iframe>
   </footer>
+
+  <script>
+    var params = new URLSearchParams(window.location.search);
+
+    // VULN v5: CWE-79 (DOM-based XSS) — the `q` value is read from the URL and
+    // written into the DOM with innerHTML, so a payload such as
+    // ?q=<img src=x onerror=alert(1)> executes in the victim's browser.
+    var q = params.get("q") || "";
+    document.getElementById("last-query").innerHTML = "Last search: " + q;
+
+    // VULN v5: CWE-79 — the URL fragment is passed to document.write() without
+    // any encoding, a second DOM-XSS sink.
+    if (window.location.hash) {
+      document.write("<span>Section: " + window.location.hash.substring(1) + "</span>");
+    }
+
+    // VULN v5: CWE-95 (Eval Injection) — an expression taken from the query
+    // string is handed straight to eval(), giving script execution.
+    var expr = params.get("calc");
+    if (expr) {
+      document.getElementById("calc-out").textContent = eval(expr);
+    }
+
+    // VULN v5: CWE-922 (Insecure Storage of Sensitive Information) — the access
+    // token is persisted in localStorage, which is readable by any script on
+    // the origin (including through the XSS sinks above) and never expires.
+    if (params.get("access_token")) {
+      localStorage.setItem("access_token", params.get("access_token"));
+    }
+
+    // VULN v5: CWE-346 (Origin Validation Error) — session data is broadcast
+    // via postMessage to the wildcard target origin "*", so ANY page that
+    // frames this one receives the username and raw cookies.
+    window.parent.postMessage({
+      user: "{{ username }}",
+      cookies: document.cookie
+    }, "*");
+  </script>
 </body>
 </html>

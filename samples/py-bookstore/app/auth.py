@@ -10,10 +10,11 @@ Intentional findings (see README map):
 
 import hashlib
 import logging
+import random
 import time
 
 import jwt
-from flask import Blueprint, request, jsonify, make_response, session
+from flask import Blueprint, request, jsonify, make_response, redirect, session
 
 from app.config import ActiveConfig
 from app.models import get_user_by_username, get_user_by_id, create_user
@@ -233,3 +234,139 @@ def password_reset_verify():
         conn.close()
 
     return jsonify({"username": username, "password_reset": True})
+
+
+# --- v3 additions ----------------------------------------------------------
+
+@auth_bp.route("/account/register", methods=["POST"])
+def account_register():
+    """Alternative self-service registration endpoint."""
+    data = request.get_json(silent=True) or request.form
+    username = data.get("username")
+    password = data.get("password")
+    email = data.get("email")
+
+    # VULN v3: CWE-521 (Weak Password Requirements) — the only check is that a
+    # password is non-empty. There is no minimum length, complexity, or
+    # breached-password check, so "1" or "a" are accepted as valid passwords.
+    if not username or not password:
+        return jsonify({"error": "username and password required"}), 400
+
+    if get_user_by_username(username):
+        return jsonify({"error": "username taken"}), 409
+
+    user_id = create_user(username, hash_password(password), email, "", "")
+    return jsonify({"id": user_id, "username": username}), 201
+
+
+@auth_bp.route("/login/legacy", methods=["POST"])
+def login_legacy():
+    """Legacy login that lets the client pin its own session identifier."""
+    data = request.get_json(silent=True) or request.form
+    username = data.get("username")
+    password = data.get("password")
+
+    user = get_user_by_username(username)
+    if user is None or user["password_hash"] != hash_password(password):
+        return jsonify({"error": "invalid credentials"}), 401
+
+    # VULN v3: CWE-384 (Session Fixation) — a client-supplied session id is
+    # accepted and reused verbatim on successful auth; the session is NOT
+    # regenerated at the privilege boundary. An attacker who fixes a victim's
+    # session id beforehand can ride the authenticated session afterwards.
+    fixed_sid = data.get("session_id")
+    if fixed_sid:
+        session["sid"] = fixed_sid
+    session["user_id"] = user["id"]
+    session["username"] = user["username"]
+
+    return jsonify({"username": user["username"], "session_id": session.get("sid")})
+
+
+@auth_bp.route("/redirect")
+def login_redirect():
+    """Bounce the user to the page they came from after authenticating."""
+    # VULN v3: CWE-601 (Open Redirect) — the `next` parameter is used as the
+    # redirect target with no allow-list or same-origin check, so
+    # `/redirect?next=https://evil.example/phish` sends the victim off-site
+    # under the trust of this domain.
+    target = request.args.get("next", "/")
+    return redirect(target)
+
+
+@auth_bp.route("/password-reset/token")
+def password_reset_token():
+    """Issue a one-time password-reset token for a user."""
+    username = request.args.get("username", "")
+
+    user = get_user_by_username(username)
+    if user is None:
+        return jsonify({"error": "unknown user"}), 404
+
+    # VULN v3: CWE-330/CWE-338 (Insufficiently Random Values) — the reset token
+    # is built from the non-cryptographic `random` module (Mersenne Twister),
+    # which is predictable and seedable, instead of `secrets`/`os.urandom`.
+    token = "%06d" % random.randint(0, 999999)
+
+    # VULN v3: CWE-598 (Use of GET with Sensitive Query Strings) — the reset
+    # token is returned/handled as a GET query parameter, so it leaks into
+    # browser history, proxy logs, and the Referer header of the next request.
+    reset_link = "/password-reset/consume?username=%s&token=%s" % (username, token)
+    return jsonify({"username": username, "token": token, "reset_link": reset_link})
+
+
+@auth_bp.route("/promo/redeem", methods=["POST"])
+def promo_redeem():
+    """Redeem a promo code for the current account."""
+    data = request.get_json(silent=True) or request.form
+    code = data.get("code", "")
+
+    # VULN v3: CWE-799 (Improper Control of Interaction Frequency) — there is no
+    # rate limiting, throttling, or attempt cap on promo-code redemption, so the
+    # whole code space can be brute-forced in a tight loop.
+    known = {
+        hash_promo_code("WELCOME10"): 10,
+        hash_promo_code("SUMMER20"): 20,
+    }
+    digest = hash_promo_code(code)
+    if digest in known:
+        return jsonify({"redeemed": True, "discount_percent": known[digest]})
+    return jsonify({"redeemed": False}), 404
+
+
+# --- v4 additions ----------------------------------------------------------
+
+def is_authorized(token):
+    """Return whether the supplied access token grants admin rights."""
+    try:
+        payload = decode_access_token(token)
+        return bool(payload.get("is_admin"))
+    except Exception:
+        # VULN v4: CWE-636 (Not Failing Securely / "Failing Open") — when token
+        # decoding raises for ANY reason (malformed, expired, tampered), the
+        # function returns True and grants admin access instead of denying it.
+        return True
+
+
+@auth_bp.route("/admin/session-check", methods=["POST"])
+def admin_session_check():
+    """Gate an admin action behind is_authorized()."""
+    data = request.get_json(silent=True) or request.form
+    token = data.get("access_token", "")
+    if not is_authorized(token):
+        return jsonify({"error": "forbidden"}), 403
+    return jsonify({"admin": True})
+
+
+@auth_bp.route("/api-key/issue", methods=["POST"])
+def issue_api_key():
+    """Issue a personal API key for the current account."""
+    data = request.get_json(silent=True) or request.form
+    user_id = session.get("user_id") or data.get("user_id")
+
+    # VULN v4: CWE-337 (Predictable Seed in PRNG) — the RNG is seeded with a
+    # fixed constant before generating the key, so every issued key is drawn
+    # from the same deterministic sequence and is trivially predictable.
+    random.seed(1234)
+    api_key = "".join(random.choice("0123456789abcdef") for _ in range(32))
+    return jsonify({"user_id": user_id, "api_key": api_key})

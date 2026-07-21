@@ -13,5 +13,36 @@
 
   <p>
     <a href="/orders/{{ order.id }}/receipt.pdf">Download PDF receipt</a>
+    <!-- VULN v5: CWE-1022 — target="_blank" with no rel="noopener noreferrer",
+         so the receipt window keeps window.opener access to this page. -->
+    <a href="/orders/{{ order.id }}/label" target="_blank">Print shipping label</a>
   </p>
+
+  <!-- VULN v5: CWE-352 (CSRF) — order status can be changed by a cross-site
+       POST; the form carries no csrf_token. -->
+  <form action="/orders/{{ order.id }}/update" method="post">
+    <input type="text" name="status" value="{{ order.status }}">
+    <button type="submit">Update status</button>
+  </form>
+
+  <!-- VULN v5: CWE-352 — card details are posted with no CSRF protection, and
+       the card number field is left autocompletable (CWE-525). -->
+  <form action="/payment/save-card" method="post">
+    <input type="text" name="card_token" autocomplete="on" placeholder="Card number">
+    <button type="submit">Save card</button>
+  </form>
+
+  <script>
+    // VULN v5: CWE-922 — full order details, including the price paid, are
+    // written to localStorage where any script on the origin can read them.
+    localStorage.setItem("last_order", JSON.stringify({
+      id: {{ order.id }},
+      user_id: {{ order.user_id }},
+      total: {{ order.total_price }}
+    }));
+
+    // VULN v5: CWE-346 — order data is posted to an embedded payment widget
+    // using the wildcard "*" target origin instead of an explicit origin.
+    window.postMessage({ order: {{ order.id }}, cookies: document.cookie }, "*");
+  </script>
 {% endblock %}

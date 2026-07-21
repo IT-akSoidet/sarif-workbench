@@ -41,6 +41,15 @@ def create_app():
     app.register_blueprint(payments_bp)
     app.register_blueprint(profile_bp)
 
+    # VULN v4: CWE-1021 (Improper Restriction of Rendered UI Layers or Frames) —
+    # the app explicitly advertises that any site may frame its pages, so a
+    # malicious page can embed the app in an invisible iframe and clickjack the
+    # authenticated user into performing state-changing actions.
+    @app.after_request
+    def set_frame_options(resp):
+        resp.headers["X-Frame-Options"] = "ALLOWALL"
+        return resp
+
     @app.route("/")
     def index():
         books = [dict(b) for b in list_books()]

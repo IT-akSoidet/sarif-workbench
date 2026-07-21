@@ -7,3 +7,8 @@ node_modules/
 report.sarif
 bookstore.db
 *.sqlite3
+
+# Documentation / task specs: promt.md and README.md quote the fake payment key
+# and other VULN markers verbatim, which the secrets rules flag as real findings
+# (see the detected-stripe-api-key hit on promt.md:40). These are not app code.
+*.md

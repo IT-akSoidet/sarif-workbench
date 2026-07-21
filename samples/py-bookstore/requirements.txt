@@ -23,3 +23,8 @@ flask-cors==3.0.9
 # v2: enables the CWE-352 finding (CSRFProtect wired in main.py; CSRF globally
 # disabled via WTF_CSRF_ENABLED=False in config.py).
 Flask-WTF==0.14.3  # TODO: verify compatibility with Flask 1.1.4
+# VULN v3: CWE-1395 — dependency on a known-vulnerable third-party component.
+# PyYAML 5.3.1 is affected by CVE-2020-14343: yaml.load()/full_load() on
+# untrusted input allows arbitrary code execution (the fix landed in 5.4).
+# Used by the /admin/books/import.yaml route in app/admin.py.
+PyYAML==5.3.1

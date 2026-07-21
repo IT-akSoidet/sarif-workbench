@@ -76,6 +76,10 @@ def md5(value):
     return hashlib.md5(value.encode()).hexdigest()
 
 
+# VULN v4: CWE-1392/CWE-1393 (Use of Default Credentials) — the app ships with
+# a well-known default admin account (`admin` / `admin123`) that is seeded on
+# every init and never forced to change, so an attacker can log in as admin out
+# of the box.
 USERS = [
     # username, password, email, is_admin, secret_question, secret_answer
     ("admin", "admin123", "admin@bookstore.local", 1,

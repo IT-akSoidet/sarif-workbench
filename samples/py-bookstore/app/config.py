@@ -18,8 +18,15 @@ class BaseConfig:
     WTF_CSRF_ENABLED = False
 
     # Session cookie hardening flags left off on purpose.
+    # VULN v4: CWE-1004 — the session cookie carries no HttpOnly flag, so
+    # client-side JavaScript (e.g. via this app's XSS sinks) can read it.
     SESSION_COOKIE_HTTPONLY = False
+    # VULN v4: CWE-614 — the session cookie carries no Secure flag, so it is
+    # transmitted over plaintext HTTP and can be sniffed on the network.
     SESSION_COOKIE_SECURE = False
+    # VULN v4: CWE-1275 — no SameSite attribute is configured for the session
+    # cookie, so it is attached to cross-site requests (aids CSRF).
+    SESSION_COOKIE_SAMESITE = None
 
     # VULN: CWE-942 — permissive CORS origin. The actual CORS(app, ...) sink
     # is wired in main.py (it needs the Flask app instance); this "*" value is

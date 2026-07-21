@@ -13,7 +13,46 @@
       <li>
         <a href="/books/{{ book.id }}">{{ book.title }}</a>
         by {{ book.author }} — ${{ book.price }}
+        <!-- VULN v5: CWE-352 (CSRF) — state-changing POST form with no
+             csrf_token field. -->
+        <form action="/cart/add" method="post">
+          <input type="hidden" name="book_id" value="{{ book.id }}">
+          <button type="submit">Add to cart</button>
+        </form>
       </li>
     {% endfor %}
   </ul>
+
+  <!-- VULN v5: CWE-598 (Use of GET Request Method With Sensitive Query
+       Strings) — credentials are submitted through a GET form, so the password
+       ends up in the URL, browser history, and proxy/server logs.
+       VULN v5: CWE-525 — the password input allows autocomplete, letting the
+       browser cache the credential. -->
+  <form action="/login" method="get">
+    <input type="text" name="username" placeholder="Username">
+    <input type="password" name="password" autocomplete="on" placeholder="Password">
+    <button type="submit">Sign in</button>
+  </form>
+
+  <!-- VULN v5: CWE-352 (CSRF) — newsletter subscription POST form, again with
+       no csrf_token. -->
+  <form action="/profile/update" method="post">
+    <input type="email" name="email" placeholder="Email for offers">
+    <button type="submit">Subscribe</button>
+  </form>
+
+  <div id="results-banner"></div>
+  <script>
+    // VULN v5: CWE-79 (DOM-based XSS) — the server-rendered query is
+    // interpolated into a JS string and injected with jQuery's .html(), which
+    // parses and executes any markup it is given.
+    var lastQuery = "{{ query }}";
+    $("#results-banner").html("<b>Results for: " + lastQuery + "</b>");
+
+    // VULN v5: CWE-79 — an inline event handler is built by string
+    // concatenation from the same untrusted value.
+    document.getElementById("results-banner").setAttribute(
+      "onclick", "alert('" + lastQuery + "')"
+    );
+  </script>
 {% endblock %}

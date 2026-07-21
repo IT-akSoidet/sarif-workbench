@@ -14,3 +14,4 @@ report.sarif
 .DS_Store
 .idea/
 .vscode/
+*.sarif
