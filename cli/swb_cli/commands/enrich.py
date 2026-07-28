@@ -89,6 +89,17 @@ def enrich(args) -> int:
         else _find_repo_root(sarif_path)
     )
 
+    source_root = repo_root
+    if args.source_root and repo_root is not None:
+        requested = Path(args.source_root).resolve()
+        if requested.is_relative_to(repo_root):
+            source_root = requested
+        else:
+            logger.debug(
+                "Ignoring --source-root %s because it is outside --repo-root %s",
+                requested, repo_root,
+            )
+
     provenance = _build_provenance(
         tool_name=first_run.tool.name if first_run else "unknown",
         tool_version=first_run.tool.version if first_run else None,
@@ -104,6 +115,7 @@ def enrich(args) -> int:
     findings, skipped_no_locations = _build_findings(
         runs,
         repo_root=repo_root,
+        source_root=source_root,
         context_policy=args.context_policy,
         context_lines=args.context_lines,
         no_git=args.no_git,
@@ -139,6 +151,7 @@ def enrich(args) -> int:
 def _build_findings(
     runs,
     repo_root: Path | None,
+    source_root: Path | None,
     context_policy: str,
     context_lines: int,
     no_git: bool,
@@ -174,16 +187,16 @@ def _build_findings(
             # Source window for the content fingerprint (ADR 0001 §1 level 2);
             # read via norm_uri so uriBaseId-relative paths resolve too.
             source_lines = (
-                read_source_lines(repo_root, norm_uri)
-                if repo_root and norm_uri
+                read_source_lines(source_root, norm_uri)
+                if source_root and norm_uri
                 else None
             )
 
             code = None
             git = None
-            if repo_root:
+            if source_root:
                 code = extract_snippet(
-                    repo_root,
+                    source_root,
                     loc.uri,
                     loc.region.start_line,
                     loc.region.end_line,
@@ -191,7 +204,7 @@ def _build_findings(
                     context_lines,
                 )
                 if not no_git:
-                    git = _get_git_info(repo_root, loc.uri, loc.region.start_line, loc.region.end_line)
+                    git = _get_git_info(repo_root, source_root, loc.uri, loc.region.start_line, loc.region.end_line)
 
             fingerprints = build_fingerprints(
                 tool_name=run.tool.name,
@@ -344,11 +357,12 @@ def _build_provenance(
 
 def _get_git_info(
     repo_root: Path,
+    source_root: Path,
     uri: str,
     start_line: int,
     end_line: int | None,
 ) -> GitInfo | None:
-    file_path = resolve_under_root(repo_root, uri)
+    file_path = resolve_under_root(source_root, uri)
     if file_path is None or not file_path.exists():
         return None
     try:
