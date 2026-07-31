@@ -105,7 +105,7 @@ def test_relative_traversal_returns_none(caplog):
     with caplog.at_level(logging.WARNING):
         result = extract_snippet(SRC.parent, "../cli/test_code.py", 1, None, "line", 0)
     assert result is None
-    assert "repo root" in caplog.text
+    assert "source root" in caplog.text
 
 def test_absolute_uri_outside_root_returns_none(tmp_path, caplog):
     root = tmp_path / "repo"
@@ -115,7 +115,7 @@ def test_absolute_uri_outside_root_returns_none(tmp_path, caplog):
     with caplog.at_level(logging.WARNING):
         result = extract_snippet(root, str(outside), 1, None, "line", 0)
     assert result is None
-    assert "repo root" in caplog.text
+    assert "source root" in caplog.text
 
 def test_symlink_escaping_root_returns_none(tmp_path, caplog):
     root = tmp_path / "repo"
@@ -126,7 +126,7 @@ def test_symlink_escaping_root_returns_none(tmp_path, caplog):
     with caplog.at_level(logging.WARNING):
         result = extract_snippet(root, "link.py", 1, None, "line", 0)
     assert result is None
-    assert "repo root" in caplog.text
+    assert "source root" in caplog.text
 
 def test_symlink_inside_root_still_allowed(tmp_path):
     root = tmp_path / "repo"

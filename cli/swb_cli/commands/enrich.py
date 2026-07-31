@@ -30,6 +30,7 @@ from swb_cli.fingerprints import (
     assign_swb_ids,
     build_fingerprints,
     normalize_uri,
+    resolve_uri
 )
 
 VERSION = "0.1.0"
@@ -181,14 +182,15 @@ def _build_findings(
                 continue
             loc = result.locations[0]
 
-            norm_uri = normalize_uri(
-                loc.uri, loc.uri_base_id, run.original_uri_base_ids, repo_root,
-            )
+            effective_uri = resolve_uri(loc.uri, loc.uri_base_id, run.original_uri_base_ids)
+            norm_uri = normalize_uri(effective_uri, repo_root)
+
             # Source window for the content fingerprint (ADR 0001 §1 level 2);
             # read via norm_uri so uriBaseId-relative paths resolve too.
+
             source_lines = (
-                read_source_lines(source_root, norm_uri)
-                if source_root and norm_uri
+                read_source_lines(source_root, effective_uri)
+                if source_root and effective_uri
                 else None
             )
 
@@ -197,14 +199,14 @@ def _build_findings(
             if source_root:
                 code = extract_snippet(
                     source_root,
-                    loc.uri,
+                    effective_uri,
                     loc.region.start_line,
                     loc.region.end_line,
                     context_policy,
                     context_lines,
                 )
                 if not no_git:
-                    git = _get_git_info(repo_root, source_root, loc.uri, loc.region.start_line, loc.region.end_line)
+                    git = _get_git_info(repo_root, source_root, effective_uri, loc.region.start_line, loc.region.end_line)
 
             fingerprints = build_fingerprints(
                 tool_name=run.tool.name,

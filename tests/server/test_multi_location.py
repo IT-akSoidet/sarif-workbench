@@ -44,6 +44,7 @@ class _EnrichArgs:
         self.sarif = str(sarif)
         self.out = str(out)
         self.repo_root = str(repo_root) if repo_root else None
+        self.source_root = None
         self.context_policy = "lines"
         self.context_lines = 5
         self.no_git = True

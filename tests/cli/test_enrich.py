@@ -13,12 +13,13 @@ MALICIOUS = DATA / "malicious"
 
 class Args:
     """Минимальный объект аргументов для вызова enrich() напрямую."""
-    def __init__(self, sarif, out=None, repo_root=None, context_policy="lines",
+    def __init__(self, sarif, out=None, repo_root=None, source_root=None, context_policy="lines",
                  context_lines=5, no_git=True, fail_on_missing_source=False,
                  log_level="error"):
         self.sarif = str(sarif)
         self.out = str(out) if out else None
         self.repo_root = str(repo_root) if repo_root else None
+        self.source_root = str(source_root) if source_root else None
         self.context_policy = context_policy
         self.context_lines = context_lines
         self.no_git = no_git
@@ -311,33 +312,36 @@ def _record_git_calls(monkeypatch):
 
 def test_git_info_rejects_relative_traversal(tmp_path, monkeypatch, caplog):
     root = tmp_path / "repo"
+    source_root = root
     root.mkdir()
     (tmp_path / "secret.py").write_text("TOP_SECRET = 1\n")
     calls = _record_git_calls(monkeypatch)
     with caplog.at_level(logging.WARNING):
-        assert _get_git_info(root, "../secret.py", 1, None) is None
+        assert _get_git_info(root, source_root, "../secret.py", 1, None) is None
     assert calls == []
-    assert "repo root" in caplog.text
+    assert "source root" in caplog.text
 
 def test_git_info_rejects_absolute_uri_outside_root(tmp_path, monkeypatch, caplog):
     root = tmp_path / "repo"
+    source_root = root
     root.mkdir()
     outside = tmp_path / "secret.py"
     outside.write_text("TOP_SECRET = 1\n")
     calls = _record_git_calls(monkeypatch)
     with caplog.at_level(logging.WARNING):
-        assert _get_git_info(root, str(outside), 1, None) is None
+        assert _get_git_info(root, source_root, str(outside), 1, None) is None
     assert calls == []
 
 def test_git_info_rejects_symlink_escaping_root(tmp_path, monkeypatch, caplog):
     root = tmp_path / "repo"
+    source_root = root
     root.mkdir()
     secret = tmp_path / "secret.py"
     secret.write_text("TOP_SECRET = 1\n")
     (root / "link.py").symlink_to(secret)
     calls = _record_git_calls(monkeypatch)
     with caplog.at_level(logging.WARNING):
-        assert _get_git_info(root, "link.py", 1, None) is None
+        assert _get_git_info(root, source_root, "link.py", 1, None) is None
     assert calls == []
 
 def test_enrich_traversal_uris_get_null_code_and_warn(tmp_path, caplog):
@@ -355,7 +359,7 @@ def test_enrich_traversal_uris_get_null_code_and_warn(tmp_path, caplog):
     good = by_uri["src/db.py"]["code"]
     assert good is not None
     assert "CWE-89" in good["snippet"]
-    assert "repo root" in caplog.text
+    assert "source root" in caplog.text
 
 
 # ── лимит размера исходников (T-02) ──────────────────────────────────────────

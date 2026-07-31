@@ -22,14 +22,13 @@ _CONTEXT_PAD = 2         # §4: context fingerprint = window ±2 lines
 
 
 # ── norm_uri (ADR §3) ─────────────────────────────────────────────────────────
-
-def normalize_uri(
+def resolve_uri(
     uri: str,
     uri_base_id: str | None,
     original_uri_base_ids: dict,
-    repo_root: Path | None,
 ) -> str:
     """Normalize a SARIF artifact uri per ADR 0001 §3 (5 steps)."""
+    
     # 1. resolve uriBaseId via originalUriBaseIds (recursively), prefixing left
     full = _resolve_base(uri, uri_base_id, original_uri_base_ids, set())
     # 2. drop file:// scheme, percent-decode, backslashes -> slashes
@@ -41,7 +40,16 @@ def normalize_uri(
     norm = posixpath.normpath(full) if full else ""
     if norm == ".":
         norm = ""
-    # 4. absolute path inside a known repo_root -> relative to repo_root
+
+    return norm
+
+
+def normalize_uri(
+    resolved_uri: str,
+    repo_root: Path | None,
+) -> str:
+    
+    norm = resolved_uri
     if norm.startswith("/") and repo_root is not None:
         root = repo_root.resolve().as_posix().rstrip("/")
         if norm == root or norm.startswith(root + "/"):

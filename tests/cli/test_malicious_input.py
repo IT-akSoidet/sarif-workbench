@@ -33,12 +33,13 @@ _SENTINEL_PATH = Path("/etc/passwd")
 
 class Args:
     """Минимальный объект аргументов для вызова enrich() напрямую."""
-    def __init__(self, sarif, out=None, repo_root=None, context_policy="lines",
+    def __init__(self, sarif, out=None, repo_root=None, source_root=None, context_policy="lines",
                  context_lines=5, no_git=True, fail_on_missing_source=False,
                  log_level="error"):
         self.sarif = str(sarif)
         self.out = str(out) if out else None
         self.repo_root = str(repo_root) if repo_root else None
+        self.source_root = str(source_root) if source_root else None
         self.context_policy = context_policy
         self.context_lines = context_lines
         self.no_git = no_git
