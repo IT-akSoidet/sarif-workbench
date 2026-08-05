@@ -1,10 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
+from ..models import Project, Run
+import logging
 
 from ..db import get_db
-from ..models import Project, Run
+from ..storage import delete_blob
+from ..ai.analyze_loop import is_analysis_in_progress
 
 router = APIRouter(prefix="/api/v1")
+logger = logging.getLogger(__name__)
 
 
 def _run_to_dict(r: Run) -> dict:
@@ -84,3 +88,34 @@ def set_baseline(project_id: str, body: dict, db: Session = Depends(get_db)):
     project.baseline_run_id = baseline_run_id  # type: ignore[assignment]
     db.commit()
     return {"baseline_run_id": baseline_run_id}
+
+
+@router.delete("/projects/{project_id}", status_code=204)
+def delete_project(project_id: str, db: Session = Depends(get_db)):
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(404, {"error": "not_found", "message": "Project not found"})
+
+    run_ids = [run_id[0] for run_id in db.query(Run.id).filter(Run.project_id == project.id).all()]
+
+    if any(is_analysis_in_progress(run_id) for run_id in run_ids):
+        raise HTTPException(
+            409,
+            {
+                "error": "analysis_in_progress",
+                "message": "Cannot delete the project while AI analysis is running for any his run",
+            },
+        )
+
+    # Удаляем проект - остальные данные удалятся каскадно
+    db.delete(project)
+    db.commit()
+
+    try:
+        for run_id in run_ids:
+            delete_blob(run_id)
+        logger.info("All blobs of the project were deleted successfully")
+    except Exception as exp:
+        logger.warning("Failed to delete blobs of project=%s: %s", project_id, exp)
+
+    return Response(status_code=204) 

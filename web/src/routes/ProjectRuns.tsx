@@ -5,6 +5,7 @@ import { api, type RunSummary } from '../api/client'
 import { SEV_ORDER, SEV } from '../lib/severity'
 import { VD_ORDER, VERDICT } from '../lib/verdict'
 import { groupRunsByTool, sortToolGroups, fmtToolName } from '../lib/toolGroups'
+import { ConfirmModal } from '../components/ConfirmModal'
 
 function SevBar({ counts }: { counts: Partial<Record<string, number>> }) {
   const total = SEV_ORDER.reduce((s, k) => s + (counts[k] ?? 0), 0) || 1
@@ -36,58 +37,6 @@ function triagePct(cvd: Partial<Record<string, number>>) {
 function fmtDate(s: string | null) {
   if (!s) return '—'
   return s.replace('T', ' ').slice(0, 16)
-}
-
-function ConfirmModal({ 
-  isOpen, 
-  onClose, 
-  onConfirm, 
-  title, 
-  message,
-  isLoading 
-}: {
-  isOpen: boolean
-  onClose: () => void
-  onConfirm: () => void
-  title: string
-  message: string
-  isLoading?: boolean
-}) {
-  if (!isOpen) return null
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3>{title}</h3>
-          <button className="modal-close" onClick={onClose}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-        <div className="modal-body">
-          <p>{message}</p>
-        </div>
-        <div className="modal-footer">
-          <button 
-            className="btn btn-secondary" 
-            onClick={onClose}
-            disabled={isLoading}
-          >
-            Отмена
-          </button>
-          <button 
-            className="btn btn-danger" 
-            onClick={onConfirm}
-            disabled={isLoading}
-          >
-            {isLoading ? 'Удаление...' : 'Удалить'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
 }
 
 export default function ProjectRuns() {

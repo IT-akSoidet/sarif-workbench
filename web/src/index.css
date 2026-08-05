@@ -528,3 +528,28 @@ tbody tr:hover { background: var(--surface-2); }
 .btn-danger:hover:not(:disabled) {
   background: #dc2626;
 }
+
+
+/* Кнопка удаления на карточке проекта */
+.card-delete-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
+  cursor: pointer;
+  color: #94a3b8;
+  transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.card-delete-btn:hover {
+  color: #ef4444;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
