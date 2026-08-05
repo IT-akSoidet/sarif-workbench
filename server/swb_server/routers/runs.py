@@ -23,7 +23,7 @@ from ..ai.analyze_loop import is_analysis_in_progress
 from ..db import get_db
 from ..ingest import MetaValidationError, ingest
 from ..models import Finding, FindingIdentity, Project, Rule, Run
-from ..storage import load_blob, save_blob
+from ..storage import load_blob, save_blob, delete_blob
 from ..verdicts import recompute_counts_by_verdict, write_verdict
 
 logger = logging.getLogger(__name__)
@@ -654,3 +654,84 @@ def get_sarif(run_id: str, db: Session = Depends(get_db)):
     return Response(content=data, media_type="application/json")
 
 
+@router.delete("/runs/{run_id}", status_code=204)
+def delete_run(run_id: str, db: Session = Depends(get_db)):
+    run = db.get(Run, run_id)
+    if not run:
+        raise HTTPException(404, {"error": "not_found", "message": "Run not found"})
+
+    if is_analysis_in_progress(run_id):
+        raise HTTPException(
+            409,
+            {
+                "error": "analysis_in_progress",
+                "message": "Cannot delete while AI analysis is running for this run",
+            },
+        )
+
+    # Обновляем поля FindingIdentity.last_seen_run_id 
+    selected_run_id = run.id
+    project = run.project
+    
+    # Находим identity, для которых удаляемый ран - последний
+    identities_to_update = (
+        db.query(FindingIdentity.id)
+        .filter(
+            FindingIdentity.project_id == project.id,
+            FindingIdentity.last_seen_run_id == selected_run_id,
+            FindingIdentity.findings.any(Finding.run_id != selected_run_id),  # есть другие раны
+        )
+        .all()
+    )
+    
+    # Для каждой такой identity находим новый последний ран
+    for (identity_id,) in identities_to_update:
+        # Находим последний ран для этой identity, исключая удаляемый
+        last_finding = (
+            db.query(Finding)
+            .join(Run, Finding.run_id == Run.id)
+            .filter(
+                Finding.identity_id == identity_id,
+                Finding.run_id != selected_run_id,
+            )
+            .order_by(Run.uploaded_at.desc())
+            .first()
+        )
+        
+        if last_finding:
+            db.query(FindingIdentity).filter(
+                FindingIdentity.id == identity_id
+            ).update(
+                {
+                    FindingIdentity.last_seen_run_id: last_finding.run_id,
+                    FindingIdentity.last_seen_at: last_finding.run.uploaded_at,
+                },
+                synchronize_session=False,
+            )
+
+    # Проверяем текущий бейслайн
+    if project.baseline_run_id == selected_run_id:
+        project.baseline_run_id = None
+
+    # Удаляем ран. Остальные зависимые данные удаляются каскадно
+    db.delete(run)
+    db.flush()
+    # Удаляем FindingIdentitys, у которых нет ни одного finding
+    (
+        db.query(FindingIdentity)
+        .filter(
+            FindingIdentity.project_id == project.id,
+            ~FindingIdentity.findings.any(),
+        )
+        .delete(synchronize_session=False)
+    )
+
+    db.commit()
+    # Удаляем отчеты из хранилища
+    try:
+        delete_blob(run_id)
+        logger.info("Blobs were deleted successfully for run: %s", run_id)
+    except Exception as exp:
+        logger.warning("Failed to delete blobs for run: %s: %s", run_id, exp)
+
+    return Response(status_code=204)

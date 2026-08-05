@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, type RunSummary } from '../api/client'
@@ -37,10 +38,69 @@ function fmtDate(s: string | null) {
   return s.replace('T', ' ').slice(0, 16)
 }
 
+function ConfirmModal({ 
+  isOpen, 
+  onClose, 
+  onConfirm, 
+  title, 
+  message,
+  isLoading 
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onConfirm: () => void
+  title: string
+  message: string
+  isLoading?: boolean
+}) {
+  if (!isOpen) return null
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>{title}</h3>
+          <button className="modal-close" onClick={onClose}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="modal-body">
+          <p>{message}</p>
+        </div>
+        <div className="modal-footer">
+          <button 
+            className="btn btn-secondary" 
+            onClick={onClose}
+            disabled={isLoading}
+          >
+            Отмена
+          </button>
+          <button 
+            className="btn btn-danger" 
+            onClick={onConfirm}
+            disabled={isLoading}
+          >
+            {isLoading ? 'Удаление...' : 'Удалить'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ProjectRuns() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const qc = useQueryClient()
+
+  // Состояние для модального окна удаления
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean
+    runId: string | null
+    runCommit: string
+  }>({ isOpen: false, runId: null, runCommit: '' })
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['project-runs', projectId],
@@ -55,6 +115,35 @@ export default function ProjectRuns() {
       qc.invalidateQueries({ queryKey: ['projects'] })
     },
   })
+
+  const deleteRunMutation = useMutation({
+    mutationFn: (runId: string) => api.deleteRun(runId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['project-runs', projectId] })
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      setDeleteModal({ isOpen: false, runId: null, runCommit: '' })
+    },
+    onError: (error) => {
+      console.error('Failed to delete run:', error)
+      // Можно добавить toast/уведомление
+      alert(`Ошибка при удалении: ${error.message}`)
+      setDeleteModal({ isOpen: false, runId: null, runCommit: '' })
+    }
+  })
+
+  const handleDeleteClick = (runId: string, commit: string) => {
+    setDeleteModal({ isOpen: true, runId, runCommit: commit })
+  }
+
+  const handleDeleteConfirm = () => {
+    if (deleteModal.runId) {
+      deleteRunMutation.mutate(deleteModal.runId)
+    }
+  }
+
+  const handleDeleteCancel = () => {
+    setDeleteModal({ isOpen: false, runId: null, runCommit: '' })
+  }
 
   if (isLoading) {
     return (
@@ -167,6 +256,7 @@ export default function ProjectRuns() {
                 <th>Severity</th>
                 <th>Триаж</th>
                 <th>Бейзлайн</th>
+                <th style={{ width: 40 }}></th>
               </tr>
             </thead>
             <tbody>
@@ -216,6 +306,20 @@ export default function ProjectRuns() {
                         )
                       }
                     </td>
+                    <td>
+                      <button
+                        className="delete-btn"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDeleteClick(r.id, r.commit)
+                        }}
+                        title="Удалить прогон"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="16" height="16">
+                          <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2M10 11v6M14 11v6"/>
+                        </svg>
+                      </button>
+                    </td>
                   </tr>
                 )
               })}
@@ -223,6 +327,14 @@ export default function ProjectRuns() {
           </table>
         </div>
       </div>
+      <ConfirmModal
+        isOpen={deleteModal.isOpen}
+        onClose={handleDeleteCancel}
+        onConfirm={handleDeleteConfirm}
+        title="Удаление прогона"
+        message={`Вы уверены, что хотите удалить прогон ${deleteModal.runCommit}? Это действие нельзя отменить. Все находки и связанные данные будут удалены безвозвратно.`}
+        isLoading={deleteRunMutation.isPending}
+      />
     </>
   )
 }
