@@ -205,7 +205,7 @@ def _build_findings(
                     context_policy,
                     context_lines,
                 )
-                if not no_git:
+                if not no_git and repo_root:
                     git = _get_git_info(repo_root, source_root, effective_uri, loc.region.start_line, loc.region.end_line)
 
             fingerprints = build_fingerprints(
