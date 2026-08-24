@@ -13,12 +13,13 @@ MALICIOUS = DATA / "malicious"
 
 class Args:
     """Минимальный объект аргументов для вызова enrich() напрямую."""
-    def __init__(self, sarif, out=None, repo_root=None, context_policy="lines",
+    def __init__(self, sarif, out=None, repo_root=None, source_root=None, context_policy="lines",
                  context_lines=5, no_git=True, fail_on_missing_source=False,
                  log_level="error"):
         self.sarif = str(sarif)
         self.out = str(out) if out else None
         self.repo_root = str(repo_root) if repo_root else None
+        self.source_root = str(source_root) if source_root else None
         self.context_policy = context_policy
         self.context_lines = context_lines
         self.no_git = no_git
@@ -311,33 +312,36 @@ def _record_git_calls(monkeypatch):
 
 def test_git_info_rejects_relative_traversal(tmp_path, monkeypatch, caplog):
     root = tmp_path / "repo"
+    source_root = root
     root.mkdir()
     (tmp_path / "secret.py").write_text("TOP_SECRET = 1\n")
     calls = _record_git_calls(monkeypatch)
     with caplog.at_level(logging.WARNING):
-        assert _get_git_info(root, "../secret.py", 1, None) is None
+        assert _get_git_info(root, source_root, "../secret.py", 1, None) is None
     assert calls == []
-    assert "repo root" in caplog.text
+    assert "source root" in caplog.text
 
 def test_git_info_rejects_absolute_uri_outside_root(tmp_path, monkeypatch, caplog):
     root = tmp_path / "repo"
+    source_root = root
     root.mkdir()
     outside = tmp_path / "secret.py"
     outside.write_text("TOP_SECRET = 1\n")
     calls = _record_git_calls(monkeypatch)
     with caplog.at_level(logging.WARNING):
-        assert _get_git_info(root, str(outside), 1, None) is None
+        assert _get_git_info(root, source_root, str(outside), 1, None) is None
     assert calls == []
 
 def test_git_info_rejects_symlink_escaping_root(tmp_path, monkeypatch, caplog):
     root = tmp_path / "repo"
+    source_root = root
     root.mkdir()
     secret = tmp_path / "secret.py"
     secret.write_text("TOP_SECRET = 1\n")
     (root / "link.py").symlink_to(secret)
     calls = _record_git_calls(monkeypatch)
     with caplog.at_level(logging.WARNING):
-        assert _get_git_info(root, "link.py", 1, None) is None
+        assert _get_git_info(root, source_root, "link.py", 1, None) is None
     assert calls == []
 
 def test_enrich_traversal_uris_get_null_code_and_warn(tmp_path, caplog):
@@ -355,7 +359,7 @@ def test_enrich_traversal_uris_get_null_code_and_warn(tmp_path, caplog):
     good = by_uri["src/db.py"]["code"]
     assert good is not None
     assert "CWE-89" in good["snippet"]
-    assert "repo root" in caplog.text
+    assert "source root" in caplog.text
 
 
 # ── лимит размера исходников (T-02) ──────────────────────────────────────────
@@ -374,3 +378,244 @@ def test_enrich_oversized_source_gets_null_code_and_warns(tmp_path, monkeypatch,
     data = json.loads(out.read_text())
     assert data["findings"][0]["code"] is None
     assert "SWB_MAX_SOURCE_MB" in caplog.text
+
+
+
+#── разрешение путей: source_root vs repo_root ───────────────────────────────
+#
+# source_root — источник истины для поиска исходников; finding-путь всегда
+# резолвится относительно него, а не относительно
+# repo_root. repo_root используется отдельно 
+ 
+def _write_sarif(path: Path, uri: str, start_line: int = 1, rule_id: str = "CWE-89",
+                  tool_name: str = "TestTool") -> None:
+    path.write_text(json.dumps({
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {"driver": {"name": tool_name, "version": "1.0", "rules": []}},
+            "results": [{
+                "ruleId": rule_id, "level": "error",
+                "message": {"text": "finding"},
+                "locations": [{"physicalLocation": {
+                    "artifactLocation": {"uri": uri},
+                    "region": {"startLine": start_line},
+                }}],
+            }],
+        }],
+    }))
+ 
+ 
+def test_resolution_source_root_equals_repo_root(tmp_path):
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "main.py").write_text("l1\nl2\nMARKER\nl4\nl5\n")
+ 
+    sarif = tmp_path / "report.sarif"
+    _write_sarif(sarif, "src/main.py", start_line=3)
+    out = tmp_path / "out.swbmeta.json"
+ 
+    code = enrich(Args(sarif, out=out, repo_root=root, source_root=root,
+                        context_policy="line"))
+    assert code == 0
+    data = json.loads(out.read_text())
+    snippet = data["findings"][0]["code"]
+    assert snippet is not None
+    assert "MARKER" in snippet["snippet"]
+ 
+ 
+def test_resolution_source_root_nested_in_repo_root(tmp_path):
+    # repo_root/backend/src/foo/bar.py — source_root лежит глубже repo_root,
+    # finding-путь относителен именно к source_root 
+    repo_root = tmp_path / "project"
+    source_root = repo_root / "backend" / "src"
+    (source_root / "foo").mkdir(parents=True)
+    (source_root / "foo" / "bar.py").write_text("l1\nMARKER\nl3\n")
+ 
+    assert not (repo_root / "foo" / "bar.py").exists()
+ 
+    sarif = tmp_path / "report.sarif"
+    _write_sarif(sarif, "foo/bar.py", start_line=2)
+    out = tmp_path / "out.swbmeta.json"
+ 
+    code = enrich(Args(sarif, out=out, repo_root=repo_root, source_root=source_root,
+                        context_policy="line"))
+    assert code == 0
+    data = json.loads(out.read_text())
+    snippet = data["findings"][0]["code"]
+    assert snippet is not None
+    assert "MARKER" in snippet["snippet"]
+ 
+ 
+def test_resolution_relative_path_nested_directories(tmp_path):
+    root = tmp_path / "repo"
+    (root / "a" / "b" / "c").mkdir(parents=True)
+    (root / "a" / "b" / "c" / "deep.py").write_text("l1\nl2\nMARKER\n")
+ 
+    sarif = tmp_path / "report.sarif"
+    _write_sarif(sarif, "a/b/c/deep.py", start_line=3)
+    out = tmp_path / "out.swbmeta.json"
+ 
+    code = enrich(Args(sarif, out=out, repo_root=root, source_root=root,
+                        context_policy="line"))
+    assert code == 0
+    data = json.loads(out.read_text())
+    assert "MARKER" in data["findings"][0]["code"]["snippet"]
+ 
+ 
+def test_resolution_path_with_dot_slash_prefix(tmp_path):
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "main.py").write_text("l1\nMARKER\nl3\n")
+ 
+    sarif = tmp_path / "report.sarif"
+    _write_sarif(sarif, "./src/main.py", start_line=2)
+    out = tmp_path / "out.swbmeta.json"
+ 
+    code = enrich(Args(sarif, out=out, repo_root=root, source_root=root,
+                        context_policy="line"))
+    assert code == 0
+    data = json.loads(out.read_text())
+    assert "MARKER" in data["findings"][0]["code"]["snippet"]
+ 
+ 
+def test_resolution_absolute_uri_within_source_root(tmp_path):
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    target = root / "src" / "main.py"
+    target.write_text("l1\nMARKER\nl3\n")
+ 
+    sarif = tmp_path / "report.sarif"
+    _write_sarif(sarif, str(target), start_line=2)
+    out = tmp_path / "out.swbmeta.json"
+ 
+    code = enrich(Args(sarif, out=out, repo_root=root, source_root=root,
+                        context_policy="line"))
+    assert code == 0
+    data = json.loads(out.read_text())
+    snippet = data["findings"][0]["code"]
+    assert snippet is not None
+    assert "MARKER" in snippet["snippet"]
+ 
+ 
+def test_resolution_missing_file_gives_null_code(tmp_path):
+    root = tmp_path / "repo"
+    root.mkdir()
+ 
+    sarif = tmp_path / "report.sarif"
+    _write_sarif(sarif, "src/does_not_exist.py", start_line=1)
+    out = tmp_path / "out.swbmeta.json"
+ 
+    code = enrich(Args(sarif, out=out, repo_root=root, source_root=root,
+                        context_policy="line"))
+    assert code == 0
+    data = json.loads(out.read_text())
+    assert data["findings"][0]["code"] is None
+ 
+ 
+def test_resolution_exists_under_source_root_not_under_repo_root(tmp_path):
+    # Ключевой сценарий из требований: файл физически существует только
+    # относительно source_root; тот же относительный путь под repo_root
+    # ничего не даёт. Раньше это приводило к тому, что enrich не находил
+    # существующий на диске файл.
+    repo_root = tmp_path / "project"
+    source_root = repo_root / "backend" / "src"
+    source_root.mkdir(parents=True)
+    (source_root / "db.py").write_text("l1\nMARKER\nl3\n")
+ 
+    assert not (repo_root / "db.py").exists()
+    assert (source_root / "db.py").exists()
+ 
+    sarif = tmp_path / "report.sarif"
+    _write_sarif(sarif, "db.py", start_line=2)
+    out = tmp_path / "out.swbmeta.json"
+ 
+    code = enrich(Args(sarif, out=out, repo_root=repo_root, source_root=source_root,
+                        context_policy="line"))
+    assert code == 0
+    data = json.loads(out.read_text())
+    snippet = data["findings"][0]["code"]
+    assert snippet is not None
+    assert "MARKER" in snippet["snippet"]
+ 
+ 
+def test_resolution_original_uri_preserved_regardless_of_root(tmp_path):
+    # locator.uri должен оставаться исходным значением из finding'а, даже
+    # когда effective_uri (после resolve_uri/normalize) отличается от него.
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "main.py").write_text("l1\nMARKER\nl3\n")
+ 
+    sarif = tmp_path / "report.sarif"
+    _write_sarif(sarif, "./src/main.py", start_line=2)
+    out = tmp_path / "out.swbmeta.json"
+ 
+    enrich(Args(sarif, out=out, repo_root=root, source_root=root,
+                context_policy="line"))
+    data = json.loads(out.read_text())
+    assert data["findings"][0]["locator"]["uri"] == "./src/main.py"
+ 
+ 
+def test_resolution_default_source_root_falls_back_to_repo_root(tmp_path):
+    # Если --source-root явно не задан, а --repo-root задан, enrich.py по
+    # умолчанию использует source_root = repo_root — файлы прямо под
+    # repo_root по-прежнему должны находиться.
+    root = tmp_path / "repo"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "main.py").write_text("l1\nMARKER\nl3\n")
+ 
+    sarif = tmp_path / "report.sarif"
+    _write_sarif(sarif, "src/main.py", start_line=2)
+    out = tmp_path / "out.swbmeta.json"
+ 
+    code = enrich(Args(sarif, out=out, repo_root=root, source_root=None,
+                        context_policy="line"))
+    assert code == 0
+    data = json.loads(out.read_text())
+    assert "MARKER" in data["findings"][0]["code"]["snippet"]
+ 
+ 
+def test_resolution_source_root_outside_repo_root_is_ignored(tmp_path):
+    # enrich.py игнорирует --source-root, если он лежит вне --repo-root
+    # и падает обратно на
+    # repo_root как source_root.
+    repo_root = tmp_path / "repo"
+    (repo_root / "src").mkdir(parents=True)
+    (repo_root / "src" / "main.py").write_text("l1\nMARKER\nl3\n")
+ 
+    outside_root = tmp_path / "outside"
+    outside_root.mkdir()
+ 
+    sarif = tmp_path / "report.sarif"
+    _write_sarif(sarif, "src/main.py", start_line=2)
+    out = tmp_path / "out.swbmeta.json"
+ 
+    code = enrich(Args(sarif, out=out, repo_root=repo_root, source_root=outside_root,
+                        context_policy="line"))
+    assert code == 0
+    data = json.loads(out.read_text())
+    # source_root вне repo_root проигнорирован -> используется repo_root,
+    # файл всё ещё находится.
+    assert "MARKER" in data["findings"][0]["code"]["snippet"]
+ 
+ 
+def test_resolution_multiple_roots_norm_uri_and_snippet_both_correct(tmp_path):
+    # Одновременная проверка двух разных ролей repo_root/source_root:
+    # snippet читается относительно source_root (глубже repo_root), а
+    # norm_uri в locator остаётся детерминированным путём, не завязанным
+    # на случайное совпадение с repo_root.
+    repo_root = tmp_path / "project"
+    source_root = repo_root / "backend" / "src"
+    (source_root / "pkg").mkdir(parents=True)
+    (source_root / "pkg" / "mod.py").write_text("l1\nMARKER\nl3\n")
+ 
+    sarif = tmp_path / "report.sarif"
+    _write_sarif(sarif, "pkg/mod.py", start_line=2)
+    out = tmp_path / "out.swbmeta.json"
+ 
+    code = enrich(Args(sarif, out=out, repo_root=repo_root, source_root=source_root,
+                        context_policy="line"))
+    assert code == 0
+    data = json.loads(out.read_text())
+    finding = data["findings"][0]
+    assert "MARKER" in finding["code"]["snippet"]
+    assert finding["locator"]["norm_uri"] == "pkg/mod.py"

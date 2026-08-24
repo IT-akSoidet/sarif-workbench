@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from swb_cli.commands.enrich import enrich
-from swb_cli.fingerprints import content_hash, normalize_uri, normalize_window
+from swb_cli.fingerprints import content_hash, normalize_uri, normalize_window, resolve_uri
 
 DATA = Path(__file__).parent.parent / "data"
 VALID = DATA / "valid"
@@ -14,12 +14,13 @@ SRC = DATA / "src"
 
 class Args:
     """Минимальный объект аргументов для вызова enrich() напрямую."""
-    def __init__(self, sarif, out=None, repo_root=None, context_policy="lines",
+    def __init__(self, sarif, out=None, repo_root=None, source_root=None, context_policy="lines",
                  context_lines=5, no_git=True, fail_on_missing_source=False,
                  log_level="error"):
         self.sarif = str(sarif)
         self.out = str(out) if out else None
         self.repo_root = str(repo_root) if repo_root else None
+        self.source_root = str(source_root) if source_root else None
         self.context_policy = context_policy
         self.context_lines = context_lines
         self.no_git = no_git
@@ -63,7 +64,8 @@ def _write_sarif(tmp_path, run_extra=None, result_extra=None,
 
 def test_norm_uri_resolves_uri_base_id():
     bases = {"SRC": {"uri": "src/"}}
-    assert normalize_uri("db.py", "SRC", bases, None) == "src/db.py"
+    resolved_uri = resolve_uri("db.py", "SRC", bases)
+    assert normalize_uri(resolved_uri, None) == "src/db.py"
 
 def test_norm_uri_resolves_recursive_base():
     bases = {
@@ -71,39 +73,44 @@ def test_norm_uri_resolves_recursive_base():
         "SRC": {"uri": "src", "uriBaseId": "SRCROOT"},
     }
     # file:// снят, база раскручена рекурсивно, ведущий "/" убран (§3 шаг 5)
-    assert normalize_uri("db.py", "SRC", bases, None) == "work/repo/src/db.py"
+    resolved_uri = resolve_uri("db.py", "SRC", bases)
+    assert normalize_uri(resolved_uri, None) == "work/repo/src/db.py"
 
 def test_norm_uri_missing_base_is_tolerated():
-    assert normalize_uri("db.py", "NOPE", {}, None) == "db.py"
+    resolved_uri = resolve_uri("db.py", "NOPE", {})
+    assert normalize_uri(resolved_uri, None) == "db.py"
 
 def test_norm_uri_cyclic_base_terminates():
     bases = {"A": {"uri": "x/", "uriBaseId": "A"}}
-    assert normalize_uri("db.py", "A", bases, None) == "x/db.py"
+    resolved_uri = resolve_uri("db.py", "A", bases)
+    assert normalize_uri(resolved_uri, None) == "x/db.py"
 
 def test_norm_uri_file_scheme_percent_encoding_backslashes():
-    assert (
-        normalize_uri("file:///c%20dir\\sub\\x.py", None, {}, None)
-        == "c dir/sub/x.py"
-    )
+    resolved_uri = resolve_uri("file:///c%20dir\\sub\\x.py", None, {})
+    assert normalize_uri(resolved_uri, None)== "c dir/sub/x.py"
 
 def test_norm_uri_collapses_dot_and_dotdot_segments():
-    assert normalize_uri("src/./a/../db.py", None, {}, None) == "src/db.py"
+    resolved_uri = resolve_uri("src/./a/../db.py", None, {})
+    assert normalize_uri(resolved_uri, None) == "src/db.py"
 
 def test_norm_uri_keeps_leading_dotdot_of_relative_path():
     # схлопывание не выходит за корень строки — ведущие ".." остаются
-    assert normalize_uri("../../etc/passwd", None, {}, None) == "../../etc/passwd"
+    resolved_uri = resolve_uri("../../etc/passwd", None, {})
+    assert normalize_uri(resolved_uri, None) == "../../etc/passwd"
 
 def test_norm_uri_absolute_inside_repo_root_becomes_relative(tmp_path):
     root = tmp_path.resolve()
     (root / "src").mkdir()
     uri = (root / "src" / "db.py").as_posix()
-    assert normalize_uri(uri, None, {}, root) == "src/db.py"
+    resolved_uri = resolve_uri(uri, None, {})
+    assert normalize_uri(resolved_uri, root) == "src/db.py"
 
 def test_norm_uri_absolute_outside_repo_root_not_relativized(tmp_path):
     root = (tmp_path / "repo").resolve()
     root.mkdir()
     # путь вне repo_root не релятивизируется; ведущий "/" снят по §3 шаг 5
-    assert normalize_uri("/opt/other/x.c", None, {}, root) == "opt/other/x.c"
+    resolved_uri = resolve_uri("/opt/other/x.c", None, {})
+    assert normalize_uri(resolved_uri, root) == "opt/other/x.c"
 
 def test_norm_uri_written_next_to_original_uri(tmp_path):
     sarif = _write_sarif(tmp_path, uri="src/./a/../db.py")
