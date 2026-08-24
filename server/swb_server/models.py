@@ -31,6 +31,16 @@ class Project(Base):
         foreign_keys="Run.project_id",
         back_populates="project",
         order_by="Run.uploaded_at",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    findings_identities = relationship(
+        "FindingIdentity",
+        back_populates="project",
+        order_by="FindingIdentity.last_seen_at",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 
@@ -40,7 +50,7 @@ class Run(Base):
     __allow_unmapped__ = True
 
     id = Column(String, primary_key=True, default=lambda: _uid("r-"))
-    project_id = Column(String, ForeignKey("projects.id"), nullable=False)
+    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     commit = Column(String, nullable=False, default="unknown")
     branch = Column(String, default="unknown")
     tool = Column(String)
@@ -61,8 +71,18 @@ class Run(Base):
         foreign_keys=[project_id],
         back_populates="runs",
     )
-    findings = relationship("Finding", back_populates="run")
-    rules = relationship("Rule", back_populates="run")
+    findings = relationship(
+        "Finding", 
+        back_populates="run", 
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    rules = relationship(
+        "Rule",
+        back_populates="run", 
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class FindingIdentity(Base):
@@ -77,7 +97,7 @@ class FindingIdentity(Base):
     __allow_unmapped__ = True
 
     id = Column(String, primary_key=True, default=lambda: _uid("fi-"))
-    project_id = Column(String, ForeignKey("projects.id"), nullable=False)
+    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     swb_id = Column(String, nullable=False)
     algo = Column(String, nullable=False, default="swb-fp/2")
     level = Column(String, nullable=False, default="legacy")  # tool / content / legacy
@@ -97,16 +117,31 @@ class FindingIdentity(Base):
     prompt_id = Column(String, nullable=True)
     prompt_version = Column(String, nullable=True)
 
-    first_seen_run_id = Column(String, ForeignKey("runs.id"), nullable=True)
+    first_seen_run_id = Column(String, ForeignKey("runs.id", ondelete="SET NULL"), nullable=True)
     first_seen_at = Column(DateTime, nullable=True)
-    last_seen_run_id = Column(String, ForeignKey("runs.id"), nullable=True)
+    last_seen_run_id = Column(String, ForeignKey("runs.id", ondelete="SET NULL"), nullable=True)
     last_seen_at = Column(DateTime, nullable=True)  # обновляются при каждом ingest
 
-    findings = relationship("Finding", back_populates="identity")
+    project = relationship(
+        "Project",
+        primaryjoin="FindingIdentity.project_id == Project.id",
+        foreign_keys=[project_id],
+        back_populates="findings_identities",
+    )
+
+    findings = relationship(
+        "Finding", 
+        back_populates="identity",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
     events = relationship(
         "VerdictEvent",
         back_populates="identity",
         order_by="VerdictEvent.at",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 
@@ -116,7 +151,7 @@ class VerdictEvent(Base):
     __allow_unmapped__ = True
 
     id = Column(String, primary_key=True, default=lambda: _uid("ve-"))
-    identity_id = Column(String, ForeignKey("finding_identities.id"), nullable=False)
+    identity_id = Column(String, ForeignKey("finding_identities.id", ondelete="CASCADE"), nullable=False)
     at = Column(DateTime, nullable=False, default=datetime.utcnow)  # UTC
     source = Column(String, nullable=False)  # human | ai | carried | reset
     actor = Column(String, nullable=False)  # human / ai:{provider}/{model} / system
@@ -127,7 +162,7 @@ class VerdictEvent(Base):
     model = Column(String, nullable=True)
     prompt_id = Column(String, nullable=True)      # заполняет T-25
     prompt_version = Column(String, nullable=True)  # заполняет T-25
-    run_id = Column(String, ForeignKey("runs.id"), nullable=True)
+    run_id = Column(String, ForeignKey("runs.id", ondelete="SET NULL"),nullable=True)
     payload = Column(JSON, nullable=True)  # расширение без миграции
 
     identity = relationship("FindingIdentity", back_populates="events")
@@ -138,8 +173,8 @@ class Finding(Base):
     __allow_unmapped__ = True
 
     id = Column(String, primary_key=True, default=lambda: _uid("f-"))
-    run_id = Column(String, ForeignKey("runs.id"), nullable=False)
-    identity_id = Column(String, ForeignKey("finding_identities.id"), nullable=False)
+    run_id = Column(String, ForeignKey("runs.id", ondelete="CASCADE"), nullable=False)
+    identity_id = Column(String, ForeignKey("finding_identities.id", ondelete="CASCADE"), nullable=False)
     # swb_id/occurrence — денормализация для выдачи; вердикт живёт на identity
     swb_id = Column(String, nullable=False, default="")
     occurrence = Column(Integer, default=0)
@@ -176,7 +211,7 @@ class Rule(Base):
     __allow_unmapped__ = True
 
     id = Column(String, primary_key=True, default=lambda: _uid("rl-"))
-    run_id = Column(String, ForeignKey("runs.id"), nullable=False)
+    run_id = Column(String, ForeignKey("runs.id", ondelete="CASCADE"), nullable=False)
     rule_id = Column(String)
     name = Column(String)
     description = Column(Text)

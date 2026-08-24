@@ -141,6 +141,28 @@ export interface DiffResponse {
 // ---- API calls ----
 
 export const api = {
+  async deleteRun(runId: string): Promise<void> {
+    const response = await fetch(`/api/v1/runs/${runId}`, {
+      method: 'DELETE',
+    })
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Failed to delete run' }))
+      throw new Error(error.message || `HTTP ${response.status}: Failed to delete run`)
+    }
+  },
+
+  async deleteProject(projectId: string): Promise<void> {
+    const response = await fetch(`/api/v1/projects/${projectId}`, {
+      method: 'DELETE',
+    })
+    
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Failed to delete project' }))
+      throw new Error(error.detail || error.message || 'Failed to delete project')
+    }
+  },
+
   projects: (): Promise<{ projects: Project[] }> =>
     req('/projects'),
 

@@ -16,6 +16,7 @@ Env vars (s3):
 """
 
 import os
+import shutil
 from pathlib import Path
 
 
@@ -44,6 +45,12 @@ def load_blob(key: str) -> bytes:
     return _local_load(key)
 
 
+def delete_blob(key: str) -> None:
+    if _backend() == "s3":
+        return _s3_delete(key)
+    return _local_delete(key)
+
+
 # ── Local ──────────────────────────────────────────────────────────────────────
 
 def _local_save(key: str, data: bytes) -> str:
@@ -60,6 +67,11 @@ def _local_load(key: str) -> bytes:
     return path.read_bytes()
 
 
+def _local_delete(key: str) -> None:
+    path = _data_dir() / "blobs" / key
+    shutil.rmtree(path)
+
+
 # ── S3 / MinIO ─────────────────────────────────────────────────────────────────
 
 def _s3_save(key: str, data: bytes) -> str:
@@ -70,6 +82,10 @@ def _s3_save(key: str, data: bytes) -> str:
 def _s3_load(key: str) -> bytes:
     resp = _s3_client().get_object(Bucket=_s3_bucket(), Key=key)
     return resp["Body"].read()
+
+
+def _s3_delete(key: str) -> None:
+    pass
 
 
 def _s3_client():
