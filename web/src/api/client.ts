@@ -64,6 +64,7 @@ export interface RunSummary {
   id: string; commit: string; branch: string; tool: string; tool_version?: string
   scanned_at: string | null; uploaded_at: string | null
   counts: Partial<Counts>; counts_by_verdict: Partial<CountsByVerdict>
+  counts_by_fstec?: Record<string, number>
 }
 
 export interface Project {
@@ -71,6 +72,7 @@ export interface Project {
   baseline_run_id: string | null
   last_run: RunSummary | null
   counts: Partial<Counts>; counts_by_verdict: Partial<CountsByVerdict>
+  counts_by_fstec?: Record<string, number>
 }
 
 export interface Run {
@@ -78,12 +80,29 @@ export interface Run {
   commit: string; branch: string; tool: string | null; tool_version: string | null
   scanned_at: string | null; uploaded_at: string | null
   counts: Partial<Counts>; counts_by_verdict: Partial<CountsByVerdict>
+  counts_by_fstec?: Record<string, number>
   baseline_run_id: string | null
+}
+
+// Блок расчёта по методике ФСТЭК. `status`: assessed | needs_assessment |
+// not_applicable. У непосчитанной находки v/level/remediation равны null, а
+// `missing` перечисляет незаданные показатели — пустая оценка не должна
+// выглядеть как «Низкий».
+export interface FstecBlock {
+  status: string
+  v: number | null
+  level: string | null
+  level_label: string | null
+  remediation: string | null
+  missing: string[]
+  methodology: string
+  breakdown?: Record<string, unknown> | null
 }
 
 export interface FindingItem {
   id: string; swb_id: string; occurrence: number
   severity: string; rule_id: string; rule_name: string; cwe: string | null
+  security_severity: number | null; fstec: FstecBlock
   uri: string; start_line: number; scope: string | null; message: string
   verdict: string; verdict_source: string | null; lang: string | null
   fingerprint_algo?: string | null; fingerprint_level?: string | null
