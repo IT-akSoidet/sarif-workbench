@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, normalizeDetail } from '../api/client'
 import { SEV, sevStyle } from '../lib/severity'
+import { FstecBreakdown } from './FstecBreakdown'
 import { VERDICT, SRC_LABEL, verdictStyle, verdictLabel } from '../lib/verdict'
 
 interface Props {
@@ -111,6 +112,11 @@ export default function FindingDrawer({ findingId, runId, onClose }: Props) {
             </div>
 
             <div className="dr-body">
+              {/* Уровень критичности идёт первым: он отвечает на вопрос
+                  «за какой срок положено устранить», а остальные секции
+                  объясняют саму находку. */}
+              <FstecBreakdown fstec={f.fstec} />
+
               {/* Location */}
               <div className="dr-sec">
                 <h3>Расположение</h3>
