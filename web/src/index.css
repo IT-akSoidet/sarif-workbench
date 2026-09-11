@@ -553,3 +553,40 @@ tbody tr:hover { background: var(--surface-2); }
   border-color: #fecaca;
   background: #fef2f2;
 }
+/* ── Профиль информационной системы (методика ФСТЭК) ─────────────────── */
+
+.fstec-profile {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  padding: 14px 16px;
+}
+
+.fstec-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+
+.fstec-field-t {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+.fstec-field-t i { font-style: normal; color: var(--faint); }
+
+.fstec-field select {
+  width: 100%;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel-2, var(--panel));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.fstec-field select:disabled { opacity: .6; }
+
+.fstec-hint {
+  padding: 10px 16px 14px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.fstec-hint.warn { color: var(--high, #c2680a); }

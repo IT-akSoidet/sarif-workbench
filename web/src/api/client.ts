@@ -89,6 +89,38 @@ export interface FindingItem {
   fingerprint_algo?: string | null; fingerprint_level?: string | null
 }
 
+// Методика ФСТЭК от 30.06.2025. Варианты показателей и подписи уровней
+// приходят с сервера (`GET /fstec/indicators`), а не переписываются здесь:
+// это нормативные значения, и расхождение копий меняет уровень критичности
+// в отчёте для регулятора. Ровно та ошибка, от которой предостерегает
+// комментарий в lib/severity.ts, где такая копия ведётся вручную.
+export interface FstecIndicatorValue {
+  value: string; label: string; score: number; weighted: number
+}
+export interface FstecIndicator {
+  symbol: string; title: string; weight: number; values: FstecIndicatorValue[]
+}
+export interface FstecLevel {
+  key: string; label: string; remediation: string
+  min_value: number | null; min_inclusive: boolean
+}
+export interface FstecIndicators {
+  methodology: string; formula: string
+  indicators: Record<string, FstecIndicator>
+  levels: FstecLevel[]
+  exploitation_fixed: { value: string; label: string; reason: string }
+}
+
+export interface FstecProfile {
+  component_type: string | null
+  vulnerable_share: string | null
+  perimeter_exposure: string | null
+  missing: string[]
+  complete: boolean
+  updated_by: string | null
+  updated_at: string | null
+}
+
 export interface FindingsPage {
   total: number; page: number; page_size: number; items: FindingItem[]
 }
@@ -207,6 +239,21 @@ export const api = {
 
   resetVerdicts: (runId: string): Promise<{ reset: number }> =>
     req(`/runs/${runId}/reset`, { method: 'POST' }),
+
+  fstecIndicators: (): Promise<FstecIndicators> => req('/fstec/indicators'),
+
+  fstecProfile: (projectId: string): Promise<FstecProfile> =>
+    req(`/projects/${projectId}/fstec-profile`),
+
+  setFstecProfile: (
+    projectId: string,
+    patch: Partial<Record<'component_type' | 'vulnerable_share' | 'perimeter_exposure', string | null>>,
+  ): Promise<FstecProfile & { recomputed: Record<string, number> }> =>
+    req(`/projects/${projectId}/fstec-profile`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }),
 }
 
 export function normalizeDetail(raw: Record<string, unknown>): FindingDetail {
