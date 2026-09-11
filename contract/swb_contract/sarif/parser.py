@@ -106,7 +106,9 @@ def _parse_result(run_idx: int, result_idx: int, result: dict) -> SarifResult:
         run_index=run_idx,
         result_index=result_idx,
         rule_id=result.get("ruleId", ""),
-        level=result.get("level", "warning"),
+        # Дефолт не подставляется: цепочка разрешения уровня требует
+        # знать, было ли поле в документе (см. SarifResult.level).
+        level=result.get("level"),
         message=_extract_text(result.get("message", {})),
         locations=locations,
         related_locations=related_locations,

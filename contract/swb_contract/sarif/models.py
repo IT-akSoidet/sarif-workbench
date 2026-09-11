@@ -51,7 +51,13 @@ class SarifResult:
     run_index: int
     result_index: int
     rule_id: str
-    level: str           # error | warning | note | none
+    # None — поля `level` в SARIF нет. Отличать это от явно написанного
+    # "warning" обязательно: по спецификации 2.1.0 отсутствующий уровень
+    # берётся с defaultConfiguration правила, и только при его отсутствии
+    # становится "warning". Semgrep уровень на результате не пишет вовсе —
+    # он весь задан в правилах, и подстановка дефолта прямо здесь схлопывала
+    # весь его вывод в один уровень.
+    level: str | None    # error | warning | note | none | None
     message: str
     locations: list[SarifLocation] = field(default_factory=list)
     related_locations: list[SarifRelatedLocation] = field(default_factory=list)

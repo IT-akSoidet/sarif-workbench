@@ -191,6 +191,7 @@ def ingest(sarif_bytes: bytes, meta: dict) -> dict:
                 "description": rule.full_description or "",
                 "help_uri": rule.help_uri,
                 "default_severity": map_severity(rule.security_severity, rule.default_level),
+                "default_level": rule.default_level,
                 "security_severity": rule.security_severity,
                 "cwes": _extract_cwes(rid, rule.tags),
             }
@@ -227,7 +228,12 @@ def ingest(sarif_bytes: bytes, meta: dict) -> dict:
         rule_info = rules_map.get(rule_id, {})
 
         message = sarif_result.message
-        level = sarif_result.level
+        # SARIF 2.1.0: уровень берётся с самого результата; если поля нет —
+        # с defaultConfiguration правила; и лишь затем "warning". Средний шаг
+        # раньше пропускался, из-за чего весь вывод Semgrep (он `level` на
+        # результате не пишет) схлопывался в один уровень. Последний фолбэк
+        # нужен для правил, которых нет в списке драйвера.
+        level = sarif_result.level or rule_info.get("default_level") or "warning"
         severity = map_severity(rule_info.get("security_severity"), level)
         # Falls back to the rule id for results whose rule is missing from
         # the driver's rule list (some tools ship an incomplete one).
