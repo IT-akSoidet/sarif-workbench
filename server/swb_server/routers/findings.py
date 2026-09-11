@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from swb_contract.verdict import VERDICT_ORDER
 
+from .. import criticality
 from ..db import get_db
 from ..models import Finding, FindingIdentity, VerdictEvent
 from ..verdicts import VersionConflict, recompute_counts_by_verdict, write_verdict
@@ -83,6 +84,9 @@ def _serialize_finding(db: Session, f: Finding) -> dict:
         "cwes": f.cwes or [],
         # базовая оценка CVSS из отчёта; None — анализатор её не дал
         "security_severity": f.security_severity,
+        # уровень критичности ФСТЭК с полным разложением расчёта: показатели,
+        # веса, произведения и значения, отброшенные правилом максимума
+        "fstec": criticality.describe(db, f),
         "uri": f.uri,
         "start_line": f.start_line,
         "end_line": f.end_line,

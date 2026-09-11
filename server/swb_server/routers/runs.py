@@ -24,6 +24,7 @@ from ..db import get_db
 from ..ingest import MetaValidationError, ingest
 from ..models import Finding, FindingIdentity, Project, Rule, RuleImpact, Run
 from ..storage import load_blob, save_blob, delete_blob
+from .. import criticality
 from ..criticality import recompute_run
 from ..verdicts import recompute_counts_by_verdict, write_verdict
 
@@ -85,6 +86,8 @@ def _serialize_finding(f: Finding) -> dict:
         "rule_name": f.rule_name,
         "cwe": f.cwe,
         "security_severity": f.security_severity,
+        # уровень критичности по методике ФСТЭК — из сохранённых колонок
+        "fstec": criticality.summary(f),
         "uri": f.uri,
         "start_line": f.start_line,
         "scope": f.scope,

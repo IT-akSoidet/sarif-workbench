@@ -45,6 +45,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from swb_contract.fstec import (
+    METHODOLOGY,
     ComponentType,
     CriticalityAssessment,
     CvssSource,
@@ -53,6 +54,7 @@ from swb_contract.fstec import (
     PerimeterExposure,
     VulnerableShare,
     assess,
+    level_for,
 )
 
 # Правило статического анализа находит потенциальный дефект в собственном
@@ -257,3 +259,63 @@ def recompute_rule(db: Session, tool: str, rule_id: str) -> dict[str, int]:
         .all()
     )
     return _recompute(db, findings)
+
+
+# ── Выдача ─────────────────────────────────────────────────────────────────
+
+
+def summary(finding: Any) -> dict:
+    """Краткий блок для списка находок — из сохранённых колонок, без расчёта.
+
+    Уровень и срок берутся из `level_for(v)`, а не хранятся отдельно: они
+    производные от V, и вторая копия в базе разошлась бы с ним при первом же
+    изменении порогов методики.
+    """
+    v = finding.fstec_v
+    level = level_for(v) if v is not None else None
+    return {
+        "status": finding.fstec_status or "needs_assessment",
+        "v": v,
+        "level": level.key if level else None,
+        "level_label": level.label if level else None,
+        # Рекомендуемый срок устранения (п. 21) — текстом, как в методике.
+        "remediation": level.remediation if level else None,
+        "missing": list(finding.fstec_missing or ()),
+        "methodology": METHODOLOGY,
+    }
+
+
+def describe(db: Session, finding: Any) -> dict:
+    """Полный блок для карточки находки — с разложением расчёта.
+
+    Разложение считается заново, а не читается из базы: это чистая функция
+    от входов, и сохранённая копия разошлась бы с ними при первом же
+    пересчёте. Стоит один вызов `assess()` на открытие карточки.
+
+    По разложению аудитор видит не только итог, но и каждый показатель, его
+    вес, произведение и — для K, L, E, H — какие значения отброшены правилом
+    максимума пп. 15-17. Плюс метку источника I_cvss: пришла оценка из
+    отчёта, проставлена для правила или для этой находки.
+    """
+    from .models import RuleImpact, Run, SystemProfile  # noqa: PLC0415 — см. выше
+
+    block = summary(finding)
+
+    run = db.get(Run, finding.run_id)
+    profile = db.get(SystemProfile, run.project_id) if run else None
+    rule_impact = (
+        db.get(RuleImpact, ((run.tool or "unknown"), finding.rule_id or ""))
+        if run
+        else None
+    )
+
+    status, result = assess_finding(finding, finding.identity, profile, rule_impact)
+    block["status"] = status
+    block["breakdown"] = result.breakdown if result else None
+    if result is not None:
+        block["missing"] = list(result.missing)
+    # Правило признано не относящимся к безопасности или находка разобрана
+    # как ложное срабатывание — перечислять недостающие показатели незачем.
+    if status == NOT_APPLICABLE:
+        block["missing"] = []
+    return block
