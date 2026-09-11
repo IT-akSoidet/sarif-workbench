@@ -42,9 +42,11 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+from sqlalchemy import func, update
 from sqlalchemy.orm import Session
 
 from swb_contract.fstec import (
+    FSTEC_LEVEL_ORDER,
     METHODOLOGY,
     ComponentType,
     CriticalityAssessment,
@@ -224,6 +226,16 @@ def _recompute(db: Session, findings: Sequence[Any]) -> dict[str, int]:
     return stats
 
 
+def recompute_finding(db: Session, finding: Any) -> dict[str, int]:
+    """После смены вердикта — только эта находка.
+
+    Вердикт «ложное срабатывание» переводит находку в «не применимо»: уровень
+    критичности для несуществующей уязвимости бессмыслен. Обратная смена
+    возвращает её в расчёт.
+    """
+    return _recompute(db, [finding])
+
+
 def recompute_run(db: Session, run_id: str) -> dict[str, int]:
     """После загрузки прогона — его находки."""
     from .models import Finding  # noqa: PLC0415 — см. выше
@@ -319,3 +331,53 @@ def describe(db: Session, finding: Any) -> dict:
     if status == NOT_APPLICABLE:
         block["missing"] = []
     return block
+
+
+# ── Счётчики ───────────────────────────────────────────────────────────────
+
+
+# Порядок сводки: уровни методики сверху вниз, затем две группы находок, по
+# которым расчёта не было.
+COUNTS_KEYS: tuple[str, ...] = (*FSTEC_LEVEL_ORDER, "needs_assessment", NOT_APPLICABLE)
+
+
+def recompute_counts_by_fstec(db: Session, run_id: str) -> dict[str, int]:
+    """Единственная реализация `run.counts_by_fstec`.
+
+    Один агрегатный SQL-запрос, не Python-цикл по находкам рана. Функция не
+    коммитит — коммитит вызывающий, одной транзакцией со своей записью.
+
+    Перед агрегатом выполняется самодостаточный no-op UPDATE строки `run` —
+    тот же приём и по той же причине, что подробно разобрана в
+    `verdicts.recompute_counts_by_verdict`: под SQLite голый SELECT не держит
+    write-лок, и без этого UPDATE конкурентный писатель мог бы закоммититься
+    между нашим чтением и нашим отложенным commit, а мы затёрли бы его
+    результат устаревшим снимком.
+
+    Находка без уровня попадает в группу своего статуса, а не пропадает:
+    сумма по сводке обязана сходиться с общим числом находок рана, иначе
+    «требует оценки» выглядит как ноль находок, а не как незакрытая работа.
+    """
+    from .models import Finding, Run  # noqa: PLC0415 — см. выше
+
+    # Сессия живёт с `autoflush=False` (db.py), а `_recompute` меняет находки
+    # в памяти — без сброса агрегат ниже прочитал бы состояние до пересчёта и
+    # сводка отстала бы ровно на одну запись.
+    db.flush()
+    db.execute(update(Run).where(Run.id == run_id).values(counts_by_fstec=Run.counts_by_fstec))
+
+    counts = dict.fromkeys(COUNTS_KEYS, 0)
+    rows = (
+        db.query(Finding.fstec_status, Finding.fstec_level, func.count(Finding.id))
+        .filter(Finding.run_id == run_id)
+        .group_by(Finding.fstec_status, Finding.fstec_level)
+        .all()
+    )
+    for status, level, count in rows:
+        key = level if status == "assessed" and level else (status or "needs_assessment")
+        counts[key] = counts.get(key, 0) + count
+
+    run = db.query(Run).filter(Run.id == run_id).first()
+    if run is not None:
+        run.counts_by_fstec = counts  # type: ignore[assignment]
+    return counts

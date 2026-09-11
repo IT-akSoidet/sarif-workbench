@@ -34,7 +34,7 @@ from swb_contract.fstec import (
     VulnerableShare,
 )
 
-from ..criticality import recompute_project, recompute_rule
+from ..criticality import recompute_counts_by_fstec, recompute_project, recompute_rule
 from ..db import get_db
 from ..models import Finding, Project, RuleImpact, Run, SystemProfile
 
@@ -193,6 +193,10 @@ def set_profile(project_id: str, body: dict, db: Session = Depends(get_db)) -> d
     db.flush()
 
     stats = recompute_project(db, project_id)
+    # Сводка по уровням живёт на ране — пересчитывается вслед за находками,
+    # иначе плитки в интерфейсе покажут вчерашнюю картину.
+    for (run_id,) in db.query(Run.id).filter(Run.project_id == project_id):
+        recompute_counts_by_fstec(db, run_id)
     db.commit()
 
     return {**_profile_to_dict(profile), "recomputed": stats}
@@ -394,9 +398,19 @@ def set_rule_impacts(
     db.flush()
 
     stats: dict[str, int] = {}
+    touched: set[str] = set()
     for data in cleaned:
         for status, n in recompute_rule(db, data["tool"], data["rule_id"]).items():
             stats[status] = stats.get(status, 0) + n
+        touched.update(
+            run_id
+            for (run_id,) in db.query(Finding.run_id)
+            .join(Run, Finding.run_id == Run.id)
+            .filter(Finding.rule_id == data["rule_id"], Run.tool == data["tool"])
+            .distinct()
+        )
+    for run_id in touched:
+        recompute_counts_by_fstec(db, run_id)
     db.commit()
 
     return {"saved": len(cleaned), "recomputed": stats}

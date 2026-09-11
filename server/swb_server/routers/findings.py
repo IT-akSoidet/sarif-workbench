@@ -188,6 +188,10 @@ def update_verdict(finding_id: str, body: dict, db: Session = Depends(get_db)):
 
     # T-32: единственная реализация подсчёта — агрегатный SQL, та же транзакция.
     recompute_counts_by_verdict(db, f.run_id)  # type: ignore[arg-type]
+    # Вердикт «ложное срабатывание» убирает находку из оценки по методике, а
+    # снятие возвращает — статус и сводка по уровням обязаны это отразить.
+    criticality.recompute_finding(db, f)
+    criticality.recompute_counts_by_fstec(db, f.run_id)  # type: ignore[arg-type]
 
     db.commit()
     return {

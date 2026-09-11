@@ -72,6 +72,11 @@ class Run(Base):
     sarif_sha256 = Column(String)
     counts = Column(JSON)
     counts_by_verdict = Column(JSON)
+    # Сводка по уровням критичности ФСТЭК: ключи FSTEC_LEVEL_ORDER плюс
+    # `needs_assessment` и `not_applicable`. Последние два — полноценные
+    # группы, а не пропуск: находка без данных и находка, которую решили не
+    # оценивать, должны быть видны в сводке, иначе их «не хватает» в сумме.
+    counts_by_fstec = Column(JSON)
 
     project = relationship(
         "Project",

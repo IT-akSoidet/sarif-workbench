@@ -11,11 +11,12 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
-from sqlalchemy import case, func
+from sqlalchemy import case, false, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
+from swb_contract.fstec import FSTEC_LEVEL_ORDER
 from swb_contract.severity import SEV_ORDER
 from swb_contract.verdict import VERDICT_ORDER
 
@@ -58,6 +59,30 @@ def _severity_order_expr() -> ColumnElement:
     return case(
         *[(Finding.severity == s, i) for i, s in enumerate(SEV_ORDER)],
         else_=len(SEV_ORDER),
+    )
+
+
+def _fstec_order_expr() -> ColumnElement:
+    """CASE, эмулирующий порядок уровней ФСТЭК в SQL.
+
+    Сначала посчитанные уровни от критического к низкому, затем «требует
+    оценки» и «не применимо» — они не уровни, и ставить их между «Средним» и
+    «Низким» значило бы притворяться, что оценка есть.
+    """
+    order = (*criticality.COUNTS_KEYS,)
+    return case(
+        *[
+            (
+                case(
+                    (Finding.fstec_status == "assessed", Finding.fstec_level),
+                    else_=Finding.fstec_status,
+                )
+                == key,
+                i,
+            )
+            for i, key in enumerate(order)
+        ],
+        else_=len(order),
     )
 
 
@@ -281,6 +306,7 @@ def _dedup_response(
     # T-32: единственная реализация подсчёта — агрегатный SQL, та же транзакция.
     db.flush()
     recompute_counts_by_verdict(db, str(existing.id))
+    criticality.recompute_counts_by_fstec(db, str(existing.id))
     # п. 19 методики: пересчёт при появлении новых сведений. Здесь meta
     # перезалита поверх того же прогона — состав находок мог измениться.
     recompute_run(db, str(existing.id))
@@ -405,6 +431,7 @@ async def upload_run(
     # (autoflush=False), а агрегатный запрос читает из БД напрямую.
     db.flush()
     recompute_counts_by_verdict(db, run_id)
+    criticality.recompute_counts_by_fstec(db, run_id)
     # п. 19: уровень критичности считается сразу после загрузки. Пока
     # профиль ИС и оценки правил не заполнены, находки получают статус
     # «требует оценки» с перечнем недостающих показателей.
@@ -439,6 +466,7 @@ def get_run(run_id: str, db: Session = Depends(get_db)):
         "uploaded_at": run.uploaded_at.isoformat() if run.uploaded_at else None,
         "counts": run.counts or {},
         "counts_by_verdict": run.counts_by_verdict or {},
+        "counts_by_fstec": run.counts_by_fstec or {},
         "baseline_run_id": p.baseline_run_id if p else None,
     }
 
@@ -450,6 +478,7 @@ def list_findings(
     verdict: str | None = None,
     rule: str | None = None,
     cwe: str | None = None,
+    fstec_level: str | None = None,
     file: str | None = None,
     q: str | None = None,
     sort: str = "severity",
@@ -477,6 +506,21 @@ def list_findings(
         query = query.filter(Finding.rule_id.contains(rule))
     if cwe:
         query = query.filter(Finding.cwe.contains(cwe))
+    if fstec_level:
+        # Принимает и уровни методики, и `needs_assessment`/`not_applicable`:
+        # находки без оценки надо уметь отфильтровать так же, как посчитанные,
+        # иначе очередь на разбор не увидеть.
+        wanted = {v.strip() for v in fstec_level.split(",")}
+        levels = wanted & set(FSTEC_LEVEL_ORDER)
+        statuses = wanted - levels
+        clauses = []
+        if levels:
+            clauses.append(Finding.fstec_level.in_(levels))
+        if statuses:
+            clauses.append(Finding.fstec_status.in_(statuses))
+        # Ни одно переданное значение не распознано — отдаём пустой список,
+        # а не весь ран: молча проигнорированный фильтр опаснее пустоты.
+        query = query.filter(or_(*clauses)) if clauses else query.filter(false())
     if file:
         query = query.filter(Finding.uri.contains(file))
     if q:
@@ -496,6 +540,8 @@ def list_findings(
         order_expr = _severity_order_expr()
     elif sort == "verdict":
         order_expr = _verdict_order_expr()
+    elif sort == "fstec":
+        order_expr = _fstec_order_expr()
     else:
         # Неизвестное имя сортировки не должно превращаться в SQL-инъекцию —
         # только из белого списка; иначе — детерминированный fallback на id.
@@ -681,6 +727,9 @@ def reset_verdicts(run_id: str, db: Session = Depends(get_db)):
 
     # T-32: единственная реализация подсчёта — агрегатный SQL, та же транзакция.
     recompute_counts_by_verdict(db, run_id)
+    # сброс снимает «ложное срабатывание» — находки возвращаются в расчёт
+    criticality.recompute_run(db, run_id)
+    criticality.recompute_counts_by_fstec(db, run_id)
     db.commit()
     return {"reset": reset_count}
 
