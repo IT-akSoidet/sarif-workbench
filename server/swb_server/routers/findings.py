@@ -77,6 +77,10 @@ def _serialize_finding(db: Session, f: Finding) -> dict:
         "rule_id": f.rule_id,
         "rule_name": f.rule_name,
         "rule_description": f.rule_description,
+        # Текст самой находки. В списке он есть с самого начала, а в карточке
+        # его не было: она читала поле, которого в ответе не было, и рамка
+        # «Сообщение анализатора» пустовала у всех инструментов.
+        "message": f.message,
         "help_uri": f.help_uri,
         "cwe": f.cwe,
         # всегда список (возможно пустой), даже у находок, загруженных до

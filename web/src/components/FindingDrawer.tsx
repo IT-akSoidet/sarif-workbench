@@ -187,13 +187,18 @@ export default function FindingDrawer({ findingId, runId, onClose }: Props) {
               )}
 
               {/* Message */}
-              <div className="dr-sec">
-                <h3>Сообщение анализатора</h3>
-                <div className="rule-desc">{f.message}</div>
-              </div>
+              {f.message && (
+                <div className="dr-sec">
+                  <h3>Сообщение анализатора</h3>
+                  <div className="rule-desc">{f.message}</div>
+                </div>
+              )}
 
               {/* Rule description */}
-              {f.rule_description && (
+              {/* Svace кладёт в `shortDescription` то же самое имя правила —
+                  описания у него нет. Повторять заголовок карточки под видом
+                  описания незачем: пустой блок честнее выдуманного. */}
+              {f.rule_description && f.rule_description !== f.rule_name && (
                 <div className="dr-sec">
                   <h3>Описание правила{f.cwe ? ` (${f.cwe})` : ''}</h3>
                   <div className="rule-desc">{f.rule_description}</div>
