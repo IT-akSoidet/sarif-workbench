@@ -22,8 +22,9 @@ from swb_contract.verdict import VERDICT_ORDER
 from ..ai.analyze_loop import is_analysis_in_progress
 from ..db import get_db
 from ..ingest import MetaValidationError, ingest
-from ..models import Finding, FindingIdentity, Project, Rule, Run
+from ..models import Finding, FindingIdentity, Project, Rule, RuleImpact, Run
 from ..storage import load_blob, save_blob, delete_blob
+from ..criticality import recompute_run
 from ..verdicts import recompute_counts_by_verdict, write_verdict
 
 logger = logging.getLogger(__name__)
@@ -126,6 +127,17 @@ def _create_rules_and_findings(db: Session, *, run_id: str, project_id: str, ing
     (project_id, swb_id) — ADR 0001 §6. Общая для обычной загрузки и ветки
     meta_updated (T-33, ADR §7) — та же логика для обеих.
     """
+    tool = ingested.get("tool") or "unknown"
+    # Заготовки заводятся только для правил, которые действительно
+    # сработали, а не для всего каталога из `tool.driver.rules`: Semgrep
+    # кладёт в отчёт весь свой реестр (1074 правила при 12 находках), и
+    # очередь на разбор мгновенно наполнилась бы правилами, которых в коде
+    # нет.
+    fired = {str(f["rule_id"]) for f in ingested["findings"] if f.get("rule_id")}
+    known_impacts = {
+        r.rule_id
+        for r in db.query(RuleImpact.rule_id).filter(RuleImpact.tool == tool)
+    }
     for rule_id, info in ingested["rules"].items():
         db.add(Rule(
             run_id=run_id,
@@ -135,6 +147,27 @@ def _create_rules_and_findings(db: Session, *, run_id: str, project_id: str, ing
             help_uri=info["help_uri"],
             default_severity=info["default_severity"],
         ))
+        # Заготовка оценки правила для методики ФСТЭК: пустая строка и есть
+        # очередь на разбор специалистом. Заводится один раз на (tool,
+        # rule_id) и переживает новые прогоны — оценка правила не зависит
+        # ни от прогона, ни от проекта.
+        #
+        # Никаких автоматических пометок «не уязвимость» здесь нет.
+        # Проверялось на данных: вывести это из отсутствия CWE нельзя (у
+        # Bandit его нет ни у одного правила, а он линтер безопасности), из
+        # каталога MITRE — тоже: у CWE-242 «использование заведомо опасной
+        # функции» там стоит Scope=Other, Impact=Varies by Context, и
+        # автоотсев выбросил бы 37 находок Svacer как безобидные.
+        if rule_id in fired and rule_id not in known_impacts:
+            known_impacts.add(rule_id)
+            db.add(RuleImpact(tool=tool, rule_id=rule_id))
+
+    # Некоторые инструменты присылают неполный каталог правил — заготовку
+    # надо завести и для таких, иначе их находки навсегда останутся без
+    # оценки и не попадут в очередь.
+    for rule_id in sorted(fired - known_impacts):
+        known_impacts.add(rule_id)
+        db.add(RuleImpact(tool=tool, rule_id=rule_id))
 
     now = datetime.utcnow()
     identities: dict[str, FindingIdentity] = {}
@@ -245,6 +278,9 @@ def _dedup_response(
     # T-32: единственная реализация подсчёта — агрегатный SQL, та же транзакция.
     db.flush()
     recompute_counts_by_verdict(db, str(existing.id))
+    # п. 19 методики: пересчёт при появлении новых сведений. Здесь meta
+    # перезалита поверх того же прогона — состав находок мог измениться.
+    recompute_run(db, str(existing.id))
     db.commit()
 
     return {
@@ -366,6 +402,10 @@ async def upload_run(
     # (autoflush=False), а агрегатный запрос читает из БД напрямую.
     db.flush()
     recompute_counts_by_verdict(db, run_id)
+    # п. 19: уровень критичности считается сразу после загрузки. Пока
+    # профиль ИС и оценки правил не заполнены, находки получают статус
+    # «требует оценки» с перечнем недостающих показателей.
+    recompute_run(db, run_id)
     db.commit()
 
     return {

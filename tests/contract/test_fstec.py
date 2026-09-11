@@ -55,7 +55,7 @@ def test_appendix_example_1():
     """Пример 1: I_cvss=8,8; I_infr=0,9; I_at+I_imp=0,6 → V=4,75, «Средний»."""
     r = assess(
         i_cvss=8.8,
-        i_cvss_source=CvssSource.MANUAL,
+        i_cvss_source=CvssSource.MANUAL_RULE,
         component_types=[ComponentType.FIREWALL],  # 0,9
         vulnerable_share=[VulnerableShare.FROM_10_TO_50],  # 0,6
         perimeter_exposure=PerimeterExposure.INTERNET_FACING,  # 1,1
@@ -76,7 +76,7 @@ def test_appendix_example_2():
     """Пример 2: I_cvss=9,8; I_infr=1,08; I_at+I_imp=0,8 → V=8,47, «Критический»."""
     r = assess(
         i_cvss=9.8,
-        i_cvss_source=CvssSource.MANUAL,
+        i_cvss_source=CvssSource.MANUAL_RULE,
         component_types=[ComponentType.KEY_PROCESSES],  # 1,1
         # правило максимума: из четырёх долей уязвимых компонентов берётся большая
         vulnerable_share=[
@@ -258,9 +258,25 @@ def test_i_cvss_range_bounds_are_inclusive(ok):
     assert _assess(i_cvss=ok).status == "assessed"
 
 
-def test_i_cvss_source_is_recorded_in_breakdown():
-    r = _assess(i_cvss_source=CvssSource.CWE_REFERENCE)
-    assert r.breakdown["i_cvss"] == {"value": 9.8, "source": "cwe_reference"}
+@pytest.mark.parametrize("source,expected", [
+    (CvssSource.SARIF_SECURITY_SEVERITY, "sarif_security_severity"),
+    (CvssSource.MANUAL_RULE, "manual_rule"),
+    (CvssSource.MANUAL_FINDING, "manual_finding"),
+])
+def test_i_cvss_source_is_recorded_in_breakdown(source, expected):
+    """Метка источника обязана доехать до разложения: по ней аудитор видит,
+    оценка пришла из отчёта, проставлена для класса находок или для этой."""
+    r = _assess(i_cvss_source=source)
+    assert r.breakdown["i_cvss"] == {"value": 9.8, "source": expected}
+
+
+def test_cvss_source_has_no_cwe_derived_value():
+    """Вывести базовую оценку CVSS из CWE нельзя: внутри одного класса
+    оценки в БДУ расходятся от 0,0 до 10,0. Источник, которого не бывает,
+    не должен существовать и в перечислении."""
+    assert {s.value for s in CvssSource} == {
+        "sarif_security_severity", "manual_rule", "manual_finding",
+    }
 
 
 def test_zero_i_cvss_still_computes():
