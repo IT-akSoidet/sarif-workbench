@@ -156,3 +156,47 @@ def test_sort_puts_assessed_levels_before_unassessed(upload_run, client):
                  ])
     assert _levels(client, run["run_id"], sort="fstec") == \
         ["high", "low", "needs_assessment"]
+
+
+# ── (е) агрегация ──────────────────────────────────────────────────────────
+
+
+def _agg(client, run_id):
+    groups = client.get(f"/api/v1/runs/{run_id}/aggregations",
+                        params={"by": "fstec_level"}).json()["groups"]
+    return {g["key"]: g for g in groups}
+
+
+def test_aggregation_groups_by_level_and_status(upload_run, client):
+    run = _setup(upload_run, client, "fstec-agg",
+                 [{"rule_id": "A-HI", "uri": "src/hi.py"},
+                  {"rule_id": "A-NA", "uri": "src/na.py"},
+                  {"rule_id": "A-TODO", "uri": "src/todo.py"}],
+                 rules=[
+                     {"tool": "TestTool", "rule_id": "A-HI", "i_cvss": 9.8,
+                      "impacts": ["arbitrary_code_execution"]},
+                     {"tool": "TestTool", "rule_id": "A-NA", "not_applicable": True,
+                      "note": "проверка стиля"},
+                 ])
+    groups = _agg(client, run["run_id"])
+    assert groups["high"]["count"] == 1
+    assert groups["not_applicable"]["count"] == 1
+    assert groups["needs_assessment"]["count"] == 1
+
+
+def test_aggregation_labels_come_from_the_contract(upload_run, client):
+    """Названия уровней — из методики, а не переписаны в роутере."""
+    run = _setup(upload_run, client, "fstec-agg-lbl",
+                 [{"rule_id": "A-LBL", "uri": "src/l.py"}],
+                 rules=[{"tool": "TestTool", "rule_id": "A-LBL", "i_cvss": 9.8,
+                         "impacts": ["arbitrary_code_execution"]}])
+    from swb_contract.fstec import level_label  # noqa: PLC0415
+
+    assert _agg(client, run["run_id"])["high"]["label"] == level_label("high")
+
+
+def test_aggregation_labels_the_two_non_levels(upload_run, client):
+    """«Требует оценки» и «не применимо» уровнями не являются и своей
+    подписи в методике не имеют — она наша."""
+    run = upload_run([{"rule_id": "A-NL", "uri": "src/nl.py"}], repo="fstec-agg-nl")
+    assert _agg(client, run["run_id"])["needs_assessment"]["label"] == "Требует оценки"

@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from swb_contract.fstec import FSTEC_LEVEL_ORDER
+from swb_contract.fstec import FSTEC_LEVEL_ORDER, level_label
 from swb_contract.severity import SEV_ORDER
 from swb_contract.verdict import VERDICT_ORDER
 
@@ -60,6 +60,16 @@ def _severity_order_expr() -> ColumnElement:
         *[(Finding.severity == s, i) for i, s in enumerate(SEV_ORDER)],
         else_=len(SEV_ORDER),
     )
+
+
+# Подписи групп агрегации по уровню критичности. Уровни берутся из контракта
+# (`level_label`), две остальные группы — не уровни и своей подписи в методике
+# не имеют.
+_FSTEC_GROUP_LABELS: dict[str, str] = {
+    **{key: level_label(key) for key in FSTEC_LEVEL_ORDER},
+    "needs_assessment": "Требует оценки",
+    "not_applicable": "Не применимо",
+}
 
 
 def _fstec_order_expr() -> ColumnElement:
@@ -574,9 +584,11 @@ def get_aggregations(run_id: str, by: str = "severity", db: Session = Depends(ge
     base = db.query(Finding).filter(Finding.run_id == run_id)
     count_expr = func.count(Finding.id)
     groups: list[dict]
-    # аннотация нужна явно: ветки ниже возвращают Row разной формы (2- и
-    # 3-колоночные) — без неё mypy сузил бы тип rows по первой ветке.
+    # аннотации нужны явно: ветки ниже возвращают Row разной формы (2- и
+    # 3-колоночные), а ключ группировки — то coalesce, то CASE. Без них mypy
+    # сузил бы оба типа по первой ветке.
     rows: list[Any]
+    key_expr: ColumnElement
 
     if by == "verdict":
         key_expr = func.coalesce(FindingIdentity.verdict, "unmarked")
@@ -615,6 +627,23 @@ def get_aggregations(run_id: str, by: str = "severity", db: Session = Depends(ge
             .all()
         )
         groups = [{"key": key, "label": key, "count": count} for key, count in rows]
+    elif by == "fstec_level":
+        # Ключ группы — уровень у посчитанных находок и статус у остальных.
+        # «Требует оценки» и «не применимо» — полноценные группы: очередь на
+        # разбор должна быть видна в той же панели, что и результат.
+        key_expr = case(
+            (Finding.fstec_status == "assessed", Finding.fstec_level),
+            else_=func.coalesce(Finding.fstec_status, "needs_assessment"),
+        )
+        rows = (
+            base.with_entities(key_expr.label("key"), count_expr.label("count"))
+            .group_by(key_expr)
+            .all()
+        )
+        groups = [
+            {"key": key, "label": _FSTEC_GROUP_LABELS.get(key, key), "count": count}
+            for key, count in rows
+        ]
     else:
         # "severity" и любое нераспознанное значение `by` — прежнее поведение.
         key_expr = func.coalesce(Finding.severity, "note")
