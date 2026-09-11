@@ -15,6 +15,9 @@ class SarifLocation:
     uri: str
     region: SarifRegion
     uri_base_id: str | None = None
+    # Index into `run.artifacts[]` — the canonical link from a result to its
+    # file; uri stays the fallback when the index is absent.
+    artifact_index: int | None = None
 
 
 @dataclass
@@ -44,6 +47,22 @@ class SarifThreadFlow:
 @dataclass
 class SarifCodeFlow:
     thread_flows: list[SarifThreadFlow] = field(default_factory=list)
+
+
+@dataclass
+class SarifArtifact:
+    """A file results point at, with its text when the tool embedded it
+    (`artifacts[].contents.text`).
+
+    The spec provides for embedding precisely when the sources are not next
+    to the report: Svace exports with contents, and the uris in its results
+    name a build directory of another machine (`/.build/main.cpp`) that does
+    not exist on disk here. Without reading the embedded text the snippet is
+    lost even though the report carries it.
+    """
+
+    uri: str
+    contents: str | None = None
 
 
 @dataclass
@@ -107,6 +126,9 @@ class SarifRun:
     # Raw `originalUriBaseIds` mapping: base id -> artifactLocation dict
     # ({"uri": ..., "uriBaseId": ...}); used to resolve location uriBaseId.
     original_uri_base_ids: dict = field(default_factory=dict)
+    # `run.artifacts[]` in document order: a result's `artifactLocation.index`
+    # is a position in this list.
+    artifacts: list[SarifArtifact] = field(default_factory=list)
 
 
 @dataclass

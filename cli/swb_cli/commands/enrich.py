@@ -24,7 +24,12 @@ from swb_cli.swbmeta import (
 )
 
 from swb_cli.sarif.parser import parse_sarif
-from swb_cli.code import extract_snippet, read_source_lines, resolve_under_root
+from swb_cli.code import (
+    embedded_source_lines,
+    extract_snippet,
+    read_source_lines,
+    resolve_under_root,
+)
 from swb_cli.fingerprints import (
     IdentitySource,
     assign_swb_ids,
@@ -150,6 +155,41 @@ def enrich(args) -> int:
     return 0
 
 
+def _embedded_lines(run, loc, effective_uri: str) -> list[str] | None:
+    """The file's text from `run.artifacts[]`, when the tool embedded it.
+
+    The result addresses its artifact by index; uri matching is the fallback
+    for tools that omit the index. Both the raw uri and the uriBaseId-resolved
+    one are tried, because `artifacts[].location.uri` is written in whichever
+    form the tool used in its results.
+    """
+    artifacts = getattr(run, "artifacts", None)
+    if not artifacts:
+        return None
+
+    index = loc.artifact_index
+    artifact = None
+    if index is not None and 0 <= index < len(artifacts):
+        artifact = artifacts[index]
+    else:
+        wanted = {loc.uri, effective_uri} - {""}
+        artifact = next((a for a in artifacts if a.uri in wanted), None)
+
+    if artifact is None or artifact.contents is None:
+        return None
+
+    lines = embedded_source_lines(artifact.uri or effective_uri, artifact.contents)
+    if lines is not None:
+        # The disk read above has already logged a warning naming the file it
+        # could not open; without this line the log would claim the snippet
+        # was skipped when it was not.
+        logger.info(
+            "uri %r not readable from disk; using the contents embedded in the report",
+            effective_uri,
+        )
+    return lines
+
+
 def _build_findings(
     runs,
     repo_root: Path | None,
@@ -194,10 +234,16 @@ def _build_findings(
                 if source_root and effective_uri
                 else None
             )
+            if source_lines is None:
+                # Nothing on disk — the report may carry the file itself.
+                # Disk wins when both exist: it is the tree the user is
+                # looking at, while the embedded copy is a snapshot of
+                # whatever the analyzer built.
+                source_lines = _embedded_lines(run, loc, effective_uri)
 
             code = None
             git = None
-            if source_root:
+            if source_lines is not None or source_root:
                 code = extract_snippet(
                     source_root,
                     effective_uri,
@@ -205,9 +251,10 @@ def _build_findings(
                     loc.region.end_line,
                     context_policy,
                     context_lines,
+                    lines=source_lines,
                 )
-                if not no_git and repo_root:
-                    git = _get_git_info(repo_root, source_root, effective_uri, loc.region.start_line, loc.region.end_line)
+            if source_root and repo_root and not no_git:
+                git = _get_git_info(repo_root, source_root, effective_uri, loc.region.start_line, loc.region.end_line)
 
             fingerprints = build_fingerprints(
                 tool_name=run.tool.name,

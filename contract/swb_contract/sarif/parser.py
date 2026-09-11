@@ -6,6 +6,7 @@ from typing import Any
 
 from .models import (
     CodeFlowStep,
+    SarifArtifact,
     SarifDocumentInfo,
     SarifCodeFlow,
     SarifLocation,
@@ -82,7 +83,33 @@ def _parse_run(idx: int, run: dict) -> SarifRun:
         tool=tool,
         results=results,
         original_uri_base_ids=bases if isinstance(bases, dict) else {},
+        artifacts=_parse_artifacts(run.get("artifacts")),
     )
+
+
+def _parse_artifacts(artifacts: object) -> list[SarifArtifact]:
+    """`run.artifacts[]` with embedded contents where present.
+
+    Order is preserved: a result's `artifactLocation.index` addresses this
+    list by position. Parsing is lenient — a malformed entry becomes an
+    artifact with no contents rather than failing the whole document.
+    """
+    if not isinstance(artifacts, list):
+        return []
+    out: list[SarifArtifact] = []
+    for item in artifacts:
+        if not isinstance(item, dict):
+            out.append(SarifArtifact(uri=""))
+            continue
+        location = item.get("location")
+        uri = location.get("uri", "") if isinstance(location, dict) else ""
+        contents = item.get("contents")
+        text = contents.get("text") if isinstance(contents, dict) else None
+        out.append(SarifArtifact(
+            uri=uri if isinstance(uri, str) else "",
+            contents=text if isinstance(text, str) else None,
+        ))
+    return out
 
 
 def _parse_tool(tool: dict) -> SarifTool:
@@ -208,12 +235,13 @@ def _parse_fingerprint_dict(obj: object) -> dict[str, str]:
     return {str(k): str(v) for k, v in obj.items()}
 
 
-def _parse_physical_location(loc: dict) -> tuple[str, SarifRegion, str | None]:
+def _parse_physical_location(loc: dict) -> tuple[str, SarifRegion, str | None, int | None]:
     """Shared (uri, region, uriBaseId) extraction — used by both `locations[]`
     and `relatedLocations[]`, which share the same `physicalLocation` shape."""
     phys = loc.get("physicalLocation", {})
     artifact = phys.get("artifactLocation", {})
     region = phys.get("region", {})
+    index = artifact.get("index")
     return (
         artifact.get("uri", ""),
         SarifRegion(
@@ -222,18 +250,19 @@ def _parse_physical_location(loc: dict) -> tuple[str, SarifRegion, str | None]:
             start_column=region.get("startColumn"),
         ),
         artifact.get("uriBaseId"),
+        index if isinstance(index, int) else None,
     )
 
 
 def _parse_location(loc: dict) -> SarifLocation:
-    uri, region, uri_base_id = _parse_physical_location(loc)
-    return SarifLocation(uri=uri, region=region, uri_base_id=uri_base_id)
+    uri, region, uri_base_id, index = _parse_physical_location(loc)
+    return SarifLocation(uri=uri, region=region, uri_base_id=uri_base_id, artifact_index=index)
 
 
 def _parse_related_location(loc: dict) -> SarifRelatedLocation:
     # T-39 (ADR 0001 §8): relatedLocations are payload, not identity material —
     # stored/shown, never fed into swb_id.
-    uri, region, uri_base_id = _parse_physical_location(loc)
+    uri, region, uri_base_id, _ = _parse_physical_location(loc)
     return SarifRelatedLocation(
         uri=uri,
         region=region,
