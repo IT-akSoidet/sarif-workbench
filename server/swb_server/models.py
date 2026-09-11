@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.types import JSON
 from sqlalchemy.orm import relationship
 
@@ -187,6 +187,12 @@ class Finding(Base):
     # список: CodeQL перечисляет по 2-5 штук на правило, и терять их нельзя.
     cwe = Column(String)
     cwes = Column(JSON)
+    # Базовая оценка CVSS из отчёта (`properties["security-severity"]`, 0-10).
+    # Единственный автоматический источник показателя I_cvss методики ФСТЭК;
+    # до этой колонки число вычислялось при загрузке и выбрасывалось.
+    # Есть не у всех: CodeQL проставляет его своим security-запросам, Svacer
+    # и Bandit не дают никогда, у реестровых правил Semgrep его нет.
+    security_severity = Column(Float)
     severity = Column(String, default="note")
     message = Column(Text)
     uri = Column(String)

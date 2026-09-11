@@ -81,6 +81,8 @@ def _serialize_finding(db: Session, f: Finding) -> dict:
         # всегда список (возможно пустой), даже у находок, загруженных до
         # появления колонки — клиенту не нужна проверка на null
         "cwes": f.cwes or [],
+        # базовая оценка CVSS из отчёта; None — анализатор её не дал
+        "security_severity": f.security_severity,
         "uri": f.uri,
         "start_line": f.start_line,
         "end_line": f.end_line,

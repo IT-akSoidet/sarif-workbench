@@ -77,6 +77,13 @@ class SarifRule:
     # not previously modeled by the typed CLI parser).
     tags: list[str] = field(default_factory=list)  # from properties["tags"]
     default_level: str = "warning"  # from defaultConfiguration.level
+    # Every place this SARIF puts a CWE reference, as written. Analyzers do
+    # not agree: CodeQL and Semgrep use `properties.tags`, Svacer uses
+    # `properties.cwe[].name` and the spec-standard `relationships[].target.id`
+    # pointing into `run.taxonomies`. Knowing WHERE a CWE hides is knowledge
+    # about the format and belongs to the parser; normalizing the number
+    # (dropping leading zeros, canonical `CWE-89`) belongs to the consumer.
+    cwe_refs: list[str] = field(default_factory=list)
 
 
 @dataclass

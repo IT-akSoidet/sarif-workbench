@@ -83,6 +83,7 @@ def _serialize_finding(f: Finding) -> dict:
         "rule_id": f.rule_id,
         "rule_name": f.rule_name,
         "cwe": f.cwe,
+        "security_severity": f.security_severity,
         "uri": f.uri,
         "start_line": f.start_line,
         "scope": f.scope,

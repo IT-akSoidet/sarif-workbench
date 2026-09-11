@@ -61,6 +61,37 @@ def _parse_tool(tool: dict) -> SarifTool:
     )
 
 
+def _collect_cwe_refs(rule: dict, props: dict) -> list[str]:
+    """CWE-ссылки правила из всех мест, где их размещают анализаторы.
+
+    Порядок сохраняется — первым идёт тот CWE, на который правило нацелено.
+    Значения отдаются как написаны, кроме `properties.cwe[].name`: там по
+    смыслу поля лежит голый номер (`"120"`), и без префикса его не отличить
+    от произвольного числа.
+
+    Разбор терпимый: у третьих сторон эти поля бывают не по спецификации,
+    и кривое значение должно вести себя как отсутствующее — как и в
+    `_parse_security_severity`.
+    """
+    refs: list[str] = [t for t in props.get("tags", []) if isinstance(t, str)]
+
+    for entry in props.get("cwe", []) or []:
+        name = entry.get("name") if isinstance(entry, dict) else entry
+        if not isinstance(name, str) or not name:
+            continue
+        refs.append(f"CWE-{name}" if name.isdigit() else name)
+
+    for rel in rule.get("relationships", []) or []:
+        if not isinstance(rel, dict):
+            continue
+        target = rel.get("target")
+        tid = target.get("id") if isinstance(target, dict) else None
+        if isinstance(tid, str) and tid:
+            refs.append(tid)
+
+    return refs
+
+
 def _parse_rule(rule: dict) -> SarifRule:
     props = rule.get("properties", {})
     sec_sev = props.get("security-severity")
@@ -76,6 +107,7 @@ def _parse_rule(rule: dict) -> SarifRule:
         security_severity=_parse_security_severity(sec_sev),
         tags=props.get("tags", []),
         default_level=rule.get("defaultConfiguration", {}).get("level", "warning"),
+        cwe_refs=_collect_cwe_refs(rule, props),
     )
 
 
