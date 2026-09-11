@@ -18,6 +18,7 @@ def _run_to_dict(r: Run) -> dict:
         "branch": r.branch,
         "tool": r.tool,
         "tool_version": r.tool_version,
+        "analyzer_config": r.analyzer_config,
         "scanned_at": r.scanned_at,
         "uploaded_at": r.uploaded_at.isoformat() if r.uploaded_at else None,
         "counts": r.counts or {},

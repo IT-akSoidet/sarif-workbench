@@ -383,6 +383,13 @@ def _cover(run: Any, project: Any, total: int, findings: list[Any]) -> str:
     tool_ver = run.tool_version or ""
     uploaded = _fmt_date(run.uploaded_at.isoformat() if run.uploaded_at else None)
     scanned  = run.scanned_at or "—"
+    # Версия конфигурации анализатора — не версия драйвера: у Svacer драйвер
+    # это svacer, а сканирует Svace. Регулятору важно, чем сканировали.
+    config = getattr(run, "analyzer_config", None)
+    config_row = (
+        f"\n    <tr><td>Конфигурация анализатора</td><td>{_h(config)}</td></tr>"
+        if config else ""
+    )
 
     return f"""
 <div class="cover">
@@ -393,7 +400,7 @@ def _cover(run: Any, project: Any, total: int, findings: list[Any]) -> str:
     <tr><td>Репозиторий</td><td>{_h(repo)}</td></tr>
     <tr><td>Ветка</td><td>{_h(branch)}</td></tr>
     <tr><td>Коммит</td><td>{_h(commit)}</td></tr>
-    <tr><td>Инструмент анализа</td><td>{_h(tool)}{(" " + _h(tool_ver)) if tool_ver else ""}</td></tr>
+    <tr><td>Инструмент анализа</td><td>{_h(tool)}{(" " + _h(tool_ver)) if tool_ver else ""}</td></tr>{config_row}
     <tr><td>Дата сканирования</td><td>{_h(str(scanned))}</td></tr>
     <tr><td>Дата создания отчёта</td><td>{_h(uploaded)}</td></tr>
     <tr><td>Всего находок</td><td>{total}</td></tr>{_fstec_cover_rows(findings, project)}

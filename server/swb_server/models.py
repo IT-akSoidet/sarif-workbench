@@ -63,6 +63,11 @@ class Run(Base):
     branch = Column(String, default="unknown")
     tool = Column(String)
     tool_version = Column(String)
+    # Версия конфигурации анализатора из property bag отчёта — не то же
+    # самое, что версия драйвера: у Svacer драйвер это svacer, а сканирует
+    # Svace, и его версия лежит только здесь. Для отчёта регулятору важно,
+    # чем и в какой конфигурации сканировали.
+    analyzer_config = Column(String)
     scanned_at = Column(String)
     uploaded_at = Column(DateTime, default=datetime.utcnow)
     sarif_key = Column(String)

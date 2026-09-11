@@ -107,3 +107,24 @@ class SarifRun:
     # Raw `originalUriBaseIds` mapping: base id -> artifactLocation dict
     # ({"uri": ..., "uriBaseId": ...}); used to resolve location uriBaseId.
     original_uri_base_ids: dict = field(default_factory=dict)
+
+
+@dataclass
+class SarifDocumentInfo:
+    """Сведения о прогоне, которые анализатор кладёт в `properties` документа.
+
+    Спецификация SARIF отводит под них свободный property bag, поэтому ключи
+    у каждого инструмента свои. Здесь разбираются те, что пишет Svacer: имя
+    проекта, ветка, снимок и версия конфигурации анализатора.
+
+    Без этого отчёты Svacer приходилось привязывать к проекту вручную: имя
+    бралось из каталога, в котором запускался CLI, а ветка и коммит
+    оставались `unknown`. Для отчёта регулятору важно и то, и другое — там
+    должно быть видно, что и в какой конфигурации сканировали.
+    """
+
+    project: str | None = None
+    branch: str | None = None
+    # Версия конфигурации анализатора — не то же самое, что версия драйвера:
+    # у Svacer драйвер это svacer, а сканирует Svace, и его версия лежит здесь.
+    analyzer_config: str | None = None

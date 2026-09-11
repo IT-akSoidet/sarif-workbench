@@ -7,7 +7,7 @@ import re
 from pydantic import ValidationError
 
 from swb_contract.sarif.models import SarifResult, SarifRun
-from swb_contract.sarif.parser import parse_sarif_data
+from swb_contract.sarif.parser import parse_document_info, parse_sarif_data
 from swb_contract.severity import SEV_ORDER, map_severity
 from swb_contract.swbmeta import Finding as MetaFinding
 
@@ -297,6 +297,11 @@ def ingest(sarif_bytes: bytes, meta: dict) -> dict:
         })
 
     return {
+        # Сведения о прогоне из property bag документа: имя проекта, ветка,
+        # снимок, версия конфигурации анализатора. Нужны там, где их не дал
+        # CLI, — например у отчётов Svacer, выгруженных с сервера анализатора
+        # без доступа к исходникам.
+        "document": parse_document_info(sarif),
         "tool": tool_name,
         "tool_version": tool_version,
         "rules": rules_map,

@@ -6,6 +6,7 @@ from typing import Any
 
 from .models import (
     CodeFlowStep,
+    SarifDocumentInfo,
     SarifCodeFlow,
     SarifLocation,
     SarifRegion,
@@ -34,6 +35,39 @@ def parse_sarif_data(data: dict) -> list[SarifRun]:
     bytes/dict in hand (server ingest) don't need a file on disk.
     """
     return [_parse_run(idx, run) for idx, run in enumerate(data.get("runs", []))]
+
+
+def parse_document_info(data: dict) -> SarifDocumentInfo:
+    """Сведения о прогоне из `properties` документа, если анализатор их дал.
+
+    Разбор терпимый: property bag свободный, и чужие ключи не должны ронять
+    загрузку. Отсутствующее или не-строковое значение — это None, а не
+    выдуманная подстановка.
+
+    Ключи — как их пишет Svacer. Смотрим и в `properties` документа, и в
+    `runs[0].properties`: спецификация допускает оба места, и часть
+    инструментов кладёт свои сведения на уровень прогона.
+    """
+    bags = [data.get("properties")]
+    runs = data.get("runs")
+    if isinstance(runs, list) and runs and isinstance(runs[0], dict):
+        bags.append(runs[0].get("properties"))
+
+    def pick(*keys: str) -> str | None:
+        for bag in bags:
+            if not isinstance(bag, dict):
+                continue
+            for key in keys:
+                value = bag.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        return None
+
+    return SarifDocumentInfo(
+        project=pick("project_name"),
+        branch=pick("branch_name"),
+        analyzer_config=pick("checkers_config_version"),
+    )
 
 
 def _parse_run(idx: int, run: dict) -> SarifRun:

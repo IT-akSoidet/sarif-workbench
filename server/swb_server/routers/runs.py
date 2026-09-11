@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
 from swb_contract.fstec import FSTEC_LEVEL_ORDER, level_label
+from swb_contract.sarif.parser import parse_document_info
 from swb_contract.severity import SEV_ORDER
 from swb_contract.verdict import VERDICT_ORDER
 
@@ -52,6 +53,26 @@ _SORT_COLUMNS: dict[str, ColumnElement] = {
 
 _DEFAULT_MAX_UPLOAD_MB = 50
 _UPLOAD_CHUNK_SIZE = 1024 * 1024
+
+
+_NO_GIT_COMMIT = {"", "unknown", "0" * 40, "0000000"}
+
+
+def _clean(value: str | None) -> str | None:
+    """Значение провенанса без заглушек CLI: «unknown» — это не название."""
+    v = (value or "").strip()
+    return None if not v or v == "unknown" else v
+
+
+def _has_git_provenance(provenance: dict) -> bool:
+    """Были ли у CLI настоящие git-сведения о сканированном дереве.
+
+    `enrich --no-git` (и запуск вне git-репозитория) всё равно заполняет
+    `repo` именем каталога, а ветку и коммит — заглушками. Отличить это от
+    настоящего прогона в CI можно только по ним.
+    """
+    commit = (provenance.get("commit") or provenance.get("commit_short") or "").strip()
+    return bool(_clean(provenance.get("branch"))) and commit.lower() not in _NO_GIT_COMMIT
 
 
 def _severity_order_expr() -> ColumnElement:
@@ -364,6 +385,27 @@ async def upload_run(
     # дубль. Определение проекта — из provenance.repo meta, как и раньше.
     provenance = meta_data.get("provenance", {})
     repo: str = provenance.get("repo", "unknown")
+    # Отчёт мог быть выгружен с сервера анализатора, без исходников рядом. В
+    # этом случае CLI (`enrich --no-git`) всё равно пишет `repo` — имя
+    # каталога, из которого его запускали, — и заглушки вместо ветки и
+    # коммита. Признак «git-данных не было» и есть повод предпочесть имя
+    # проекта из самого отчёта: анализатор знает, что сканировал, а каталог
+    # запуска про это не говорит ничего.
+    #
+    # Явно заданное имя (`enrich --project`) не перебивается ничем: человек
+    # сказал, к какому проекту относится отчёт.
+    #
+    # Разбор документа здесь, а не из результата ingest(): проект нужен
+    # раньше — по нему идёт проверка на повторную загрузку.
+    if not provenance.get("repo_explicit") and not _has_git_provenance(provenance):
+        try:
+            doc_project = parse_document_info(json.loads(sarif_bytes)).project
+        except (ValueError, TypeError):
+            # Битый SARIF не должен падать здесь: разбор идёт до штатной
+            # обработки в ingest(), которая вернёт 422 с внятным сообщением.
+            doc_project = None
+        if doc_project:
+            repo = doc_project
     project_id = re.sub(r"[^a-z0-9-]", "-", repo.lower()) if repo else "unknown"
 
     project = db.query(Project).filter(Project.id == project_id).first()
@@ -407,9 +449,17 @@ async def upload_run(
         id=run_id,
         project_id=project_id,
         commit=provenance.get("commit_short") or provenance.get("commit", "unknown"),
-        branch=provenance.get("branch", "unknown"),
+        # Сведения из отчёта подставляются только там, где их не дал CLI:
+        # он знает git-репозиторий, в котором работал, и его данные точнее.
+        # «unknown» от CLI — это отсутствие сведений, а не название ветки.
+        branch=(
+            _clean(provenance.get("branch"))
+            or ingested["document"].branch
+            or "unknown"
+        ),
         tool=ingested["tool"],
         tool_version=ingested["tool_version"],
+        analyzer_config=ingested["document"].analyzer_config,
         scanned_at=provenance.get("scanned_at"),
         sarif_key=sarif_key,
         meta_key=meta_key,
@@ -472,6 +522,7 @@ def get_run(run_id: str, db: Session = Depends(get_db)):
         "branch": run.branch,
         "tool": run.tool,
         "tool_version": run.tool_version,
+        "analyzer_config": run.analyzer_config,
         "scanned_at": run.scanned_at,
         "uploaded_at": run.uploaded_at.isoformat() if run.uploaded_at else None,
         "counts": run.counts or {},

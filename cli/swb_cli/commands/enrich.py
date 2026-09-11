@@ -106,6 +106,7 @@ def enrich(args) -> int:
         tool_version=first_run.tool.version if first_run else None,
         repo_root=repo_root,
         no_git=args.no_git,
+        project=getattr(args, "project", None),
     )
 
     context_policy = ContextPolicy(
@@ -327,8 +328,15 @@ def _build_provenance(
     tool_version: str | None,
     repo_root: Path | None,
     no_git: bool,
+    project: str | None = None,
 ) -> Provenance:
-    repo = repo_root.name if repo_root else "unknown"
+    # Имя каталога — это догадка о том, откуда запускали команду, а не о том,
+    # что сканировали: git даёт ветку и коммит, но имени репозитория не даёт.
+    # Для отчёта, выгруженного с сервера анализатора, исходников рядом нет
+    # вовсе, и без `--project` его пришлось бы класть в каталог с нужным
+    # именем. Явное указание всегда важнее выведенного.
+    explicit_name = (project or "").strip()
+    repo = explicit_name or (repo_root.name if repo_root else "unknown")
     branch = "unknown"
     commit = "0" * 40
     commit_short = "0000000"
@@ -347,6 +355,7 @@ def _build_provenance(
 
     return Provenance(
         repo=repo,
+        repo_explicit=bool(explicit_name),
         branch=branch,
         commit=commit,
         commit_short=commit_short,
