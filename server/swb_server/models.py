@@ -129,6 +129,19 @@ class FindingIdentity(Base):
     # присылает версию, прочитанную своим последним GET; расхождение с текущей
     # версией identity → 409 (см. routers/findings.py::update_verdict).
     version = Column(Integer, nullable=False, default=1)
+    # E методики — сведения об эксплуатации уязвимости (таблица 1, строка 4).
+    # Живёт на identity, а не на находке: показатель относится к уязвимости и
+    # обязан пережить повторный скан так же, как вердикт. NULL — значение по
+    # умолчанию «отсутствуют сведения»: это строка таблицы 1, а не пропуск.
+    #
+    # Ссылка обязательна для всего, кроме умолчания: показатель сокращает
+    # срок устранения с недель до суток (п. 21), и предъявить аудитору нужно
+    # не только значение, но и откуда оно взято — номер БДУ, CVE, бюллетень,
+    # запись об инциденте.
+    fstec_exploitation = Column(String, nullable=True)
+    fstec_exploitation_ref = Column(Text, nullable=True)
+    fstec_exploitation_by = Column(String, nullable=True)
+    fstec_exploitation_at = Column(DateTime, nullable=True)
     # атрибуты последнего AI-вердикта (prompt_id/prompt_version заполняет T-25)
     provider = Column(String, nullable=True)
     model = Column(String, nullable=True)

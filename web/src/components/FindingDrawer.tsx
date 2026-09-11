@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ApiError, api, normalizeDetail } from '../api/client'
 import { SEV, sevStyle } from '../lib/severity'
 import { FstecBreakdown } from './FstecBreakdown'
+import { ExploitationField } from './ExploitationField'
 import { VERDICT, SRC_LABEL, verdictStyle, verdictLabel } from '../lib/verdict'
 
 interface Props {
@@ -116,6 +117,20 @@ export default function FindingDrawer({ findingId, runId, onClose }: Props) {
                   «за какой срок положено устранить», а остальные секции
                   объясняют саму находку. */}
               <FstecBreakdown fstec={f.fstec} />
+
+              {/* Показатель E — единственный, который задаётся на самой
+                  находке: сведения об эксплуатации относятся к уязвимости, а
+                  не к коду. Стоит сразу под разложением, где виден его вклад. */}
+              {f.exploitation && (
+                <div className="dr-sec">
+                  <h3>Сведения об эксплуатации (E)</h3>
+                  <ExploitationField
+                    findingId={f.id}
+                    runId={runId}
+                    exploitation={f.exploitation}
+                  />
+                </div>
+              )}
 
               {/* Location */}
               <div className="dr-sec">

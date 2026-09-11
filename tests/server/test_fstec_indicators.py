@@ -76,10 +76,11 @@ def test_levels_carry_thresholds_and_deadlines(client):
     assert by_key["low"]["min_value"] is None
 
 
-def test_exploitation_is_reported_as_fixed(client):
-    """Показатель E у форм не спрашивается — но решение должно быть видно,
-    а не выглядеть пропуском."""
-    e = _body(client)["exploitation_fixed"]
+def test_exploitation_default_is_reported(client):
+    """Показатель E форма не спрашивает заранее: у него есть умолчание, а
+    задаётся он на конкретной находке. Умолчание должно быть видно, а не
+    выглядеть пропуском."""
+    e = _body(client)["exploitation_default"]
     assert e["value"] == "no_information"
     assert "Отсутствуют сведения" in e["label"]
     assert e["reason"]

@@ -703,3 +703,39 @@ tr.open { background: var(--panel-2, rgba(127,127,127,.06)); }
 }
 
 .fb-meth { margin-top: 8px; font-size: 11px; color: var(--faint); line-height: 1.4; }
+
+/* Показатель E на находке: текущее значение, его источник и форма правки */
+
+.ex-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ex-label { font-size: 13px; color: var(--text); }
+.ex-score {
+  min-width: 32px; padding: 1px 5px;
+  font-size: 11px; text-align: center;
+  color: var(--muted); background: rgba(127,127,127,.12); border-radius: 4px;
+}
+.ex-tag {
+  padding: 1px 7px; border-radius: 999px;
+  font-size: 11px; color: var(--muted); background: rgba(127,127,127,.12);
+}
+.ex-head .btn { margin-left: auto; padding: 3px 10px; font-size: 12px; }
+
+.ex-src { margin-top: 6px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+
+.ex-form { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.ex-form label {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 6px; border-radius: 5px;
+  font-size: 12.5px; cursor: pointer;
+}
+.ex-form label:hover { background: rgba(127,127,127,.08); }
+.ex-form label.on { color: var(--text); font-weight: 500; }
+
+.ex-input {
+  width: 100%; padding: 7px 9px;
+  font: inherit; font-size: 13px;
+  color: var(--text); background: var(--panel);
+  border: 1px solid var(--border); border-radius: 6px;
+}
+.ex-input:disabled { color: var(--faint); background: rgba(127,127,127,.06); }
+
+.ex-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 2px; }

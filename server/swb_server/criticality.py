@@ -8,7 +8,7 @@
 --------------------------------
     I_cvss  переопределение на identity → RuleImpact.i_cvss → Finding.security_severity
     H       переопределение на identity → RuleImpact.impacts
-    E       всегда «отсутствуют сведения об эксплуатации»
+    E       FindingIdentity.fstec_exploitation → «отсутствуют сведения»
     K,L,P   SystemProfile проекта
 
 `I_cvss` приходит из отчёта только там, где анализатор дал
@@ -16,11 +16,14 @@
 и Bandit не дают никогда, у реестровых правил Semgrep его нет. Остальным
 оценку задаёт специалист на правиле.
 
-`E` — константа не по недосмотру. Для находки статического анализа в
-собственном коде записи в БДУ не существует, поэтому «отсутствуют сведения
-об эксплуатации в реальных атаках (наличии эксплойта)» — истинное
-утверждение о состоянии знаний, а не подстановка умолчания. Когда появится
-разбор зависимостей, значение будет приходить из БДУ по CVE.
+`E` задаётся на находке и по умолчанию равен «отсутствуют сведения об
+эксплуатации в реальных атаках (наличии эксплойта)». Это не подстановка, а
+строка таблицы 1: для находки статического анализа в собственном коде записи
+об эксплуатации обычно нет нигде. Но она бывает — у организации с подпиской
+на БДУ, лентой KEV или собственными данными об инцидентах, — и тогда
+показатель проставляется вручную со ссылкой на источник. Значение живёт на
+identity: оно относится к уязвимости и переживает повторный скан так же, как
+вердикт.
 
 Три статуса
 -----------
@@ -59,9 +62,10 @@ from swb_contract.fstec import (
     level_for,
 )
 
-# Правило статического анализа находит потенциальный дефект в собственном
-# коде — записи об эксплуатации такой находки не существует нигде.
-_EXPLOITATION = (Exploitation.NO_INFORMATION,)
+# Умолчание для находки, которой сведений об эксплуатации не проставляли.
+# Не пропуск и не заглушка: «отсутствуют сведения» — законное значение
+# таблицы 1, и для находки в собственном коде оно обычно истинно.
+DEFAULT_EXPLOITATION = Exploitation.NO_INFORMATION
 
 NOT_APPLICABLE = "not_applicable"
 
@@ -115,6 +119,12 @@ def resolve_indicators(
     if raw_impacts:
         impacts = [_enum_or_none(Impact, v) for v in raw_impacts]
 
+    # E: проставленное человеком значение важнее умолчания. Правило максимума
+    # (п. 16) методика применяет к списку сведений; источник у нас один, но
+    # список сохраняем — так же, как для K и L.
+    raw_exploitation = getattr(identity, "fstec_exploitation", None) if identity is not None else None
+    exploitation = _enum_or_none(Exploitation, raw_exploitation) or DEFAULT_EXPLOITATION
+
     component = _enum_or_none(ComponentType, getattr(profile, "component_type", None))
     share = _enum_or_none(VulnerableShare, getattr(profile, "vulnerable_share", None))
     perimeter = _enum_or_none(PerimeterExposure, getattr(profile, "perimeter_exposure", None))
@@ -129,7 +139,7 @@ def resolve_indicators(
         "component_types": [component] if component else None,
         "vulnerable_share": [share] if share else None,
         "perimeter_exposure": perimeter,
-        "exploitation": list(_EXPLOITATION),
+        "exploitation": [exploitation],
         "impact": impacts,
     }
 
@@ -234,6 +244,18 @@ def recompute_finding(db: Session, finding: Any) -> dict[str, int]:
     возвращает её в расчёт.
     """
     return _recompute(db, [finding])
+
+
+def recompute_identity(db: Session, identity_id: str) -> dict[str, int]:
+    """После правки показателя на находке — все её наблюдения в проекте.
+
+    Одна identity живёт во всех прогонах проекта, где находка встретилась
+    (ADR 0001 §6). Пересчитать только открытую в карточке строку значило бы
+    оставить в прошлых прогонах прежний уровень при том же самом показателе.
+    """
+    from .models import Finding  # noqa: PLC0415 — см. выше
+
+    return _recompute(db, db.query(Finding).filter(Finding.identity_id == identity_id).all())
 
 
 def recompute_run(db: Session, run_id: str) -> dict[str, int]:

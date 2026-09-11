@@ -27,24 +27,28 @@ from swb_contract.fstec import (
     METHODOLOGY,
     TABLE_1,
     ComponentType,
-    Exploitation,
     Impact,
     IndicatorSpec,
     PerimeterExposure,
     VulnerableShare,
 )
 
-from ..criticality import recompute_counts_by_fstec, recompute_project, recompute_rule
+from ..criticality import (
+    DEFAULT_EXPLOITATION,
+    recompute_counts_by_fstec,
+    recompute_project,
+    recompute_rule,
+)
 from ..db import get_db
 from ..models import Finding, Project, RuleImpact, Run, SystemProfile
 
 router = APIRouter(prefix="/api/v1")
 
-# Показатель E интерфейс не спрашивает: для находки статического анализа в
-# собственном коде записи об эксплуатации не существует, и значение всегда
-# «отсутствуют сведения». Отдаётся отдельно — чтобы это решение было видно,
-# а не выглядело пропуском.
-_FIXED_EXPLOITATION = Exploitation.NO_INFORMATION
+# Значение E, с которым находка живёт, пока сведений об эксплуатации никто
+# не проставил. Отдаётся отдельно от таблицы 1, чтобы форма могла показать,
+# что показатель не забыт: у него есть умолчание, и его можно переопределить
+# на конкретной находке (PATCH /findings/{id}/exploitation).
+_DEFAULT_EXPLOITATION = DEFAULT_EXPLOITATION
 
 
 def _indicator(spec: IndicatorSpec) -> dict:
@@ -85,12 +89,15 @@ def get_indicators() -> dict:
             }
             for level in LEVELS
         ],
-        "exploitation_fixed": {
-            "value": _FIXED_EXPLOITATION.value,
-            "label": TABLE_1["E"].values[_FIXED_EXPLOITATION].label,
+        "exploitation_default": {
+            "value": _DEFAULT_EXPLOITATION.value,
+            "label": TABLE_1["E"].values[_DEFAULT_EXPLOITATION].label,
             "reason": (
-                "Для находки статического анализа в собственном коде записи "
-                "об эксплуатации не существует — показатель не запрашивается."
+                "Значение по умолчанию: у находки статического анализа в "
+                "собственном коде записи об эксплуатации обычно нет. Если "
+                "сведения есть — из БДУ, ленты KEV или собственных данных об "
+                "инцидентах, — показатель задаётся на находке со ссылкой на "
+                "источник."
             ),
         },
     }

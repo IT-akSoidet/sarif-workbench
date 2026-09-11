@@ -127,7 +127,22 @@ export interface FstecIndicators {
   methodology: string; formula: string
   indicators: Record<string, FstecIndicator>
   levels: FstecLevel[]
-  exploitation_fixed: { value: string; label: string; reason: string }
+  // Значение E, с которым живёт находка, пока сведений об эксплуатации
+  // никто не проставил. Не пропуск, а строка таблицы 1 — форма показывает
+  // его наравне с заданными вручную.
+  exploitation_default: { value: string; label: string; reason: string }
+}
+
+// Показатель E на конкретной находке. `set_by_human: false` — умолчание;
+// выдавать его за решение специалиста нельзя, отсюда отдельный признак.
+export interface ExploitationBlock {
+  value: string
+  label: string
+  score: number
+  set_by_human: boolean
+  ref: string | null
+  by: string | null
+  at: string | null
 }
 
 export interface FstecProfile {
@@ -203,6 +218,7 @@ export interface VerdictObj {
 
 export interface FindingDetail extends FindingItem {
   rule_description: string | null; help_uri: string | null
+  exploitation: ExploitationBlock
   end_line: number | null
   snippet: Snippet | null
   // T-39: always arrays (possibly empty), server never sends null for these.
@@ -290,6 +306,19 @@ export const api = {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ verdict, rationale, version }),
+    }),
+
+  // value: null возвращает находку к умолчанию. Для остальных значений
+  // сервер требует ссылку на источник и отвечает 400 без неё.
+  setExploitation: (
+    fid: string,
+    value: string | null,
+    ref: string,
+  ): Promise<{ exploitation: ExploitationBlock; fstec: FstecBlock }> =>
+    req(`/findings/${fid}/exploitation`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value, ref }),
     }),
 
   resetVerdicts: (runId: string): Promise<{ reset: number }> =>
