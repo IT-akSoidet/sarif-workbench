@@ -140,6 +140,42 @@ export interface FstecProfile {
   updated_at: string | null
 }
 
+// Оценка правила: показатель H и, когда анализатор не дал security-severity,
+// оценка CVSS. Хранится глобально, не на проект — последствие эксплуатации
+// не зависит от репозитория, в котором находка нашлась.
+export interface RuleImpactRow {
+  tool: string
+  rule_id: string
+  rule_name: string | null
+  cwes: string[]
+  findings: number
+  impacts: string[]
+  not_applicable: boolean
+  i_cvss: number | null
+  cvss_vector: string | null
+  note: string | null
+  updated_by: string | null
+  updated_at: string | null
+  assessed: boolean
+}
+
+export interface RuleImpactPage {
+  total: number
+  unassessed: number
+  items: RuleImpactRow[]
+}
+
+export interface RuleImpactPatch {
+  tool: string
+  rule_id: string
+  impacts?: string[]
+  not_applicable?: boolean
+  i_cvss?: number | null
+  cvss_vector?: string | null
+  note?: string | null
+  updated_by?: string | null
+}
+
 export interface FindingsPage {
   total: number; page: number; page_size: number; items: FindingItem[]
 }
@@ -260,6 +296,23 @@ export const api = {
     req(`/runs/${runId}/reset`, { method: 'POST' }),
 
   fstecIndicators: (): Promise<FstecIndicators> => req('/fstec/indicators'),
+
+  ruleImpacts: (params: { unassessed?: boolean; tool?: string } = {}): Promise<RuleImpactPage> => {
+    const qs = new URLSearchParams()
+    if (params.unassessed) qs.set('unassessed', 'true')
+    if (params.tool) qs.set('tool', params.tool)
+    const q = qs.toString()
+    return req(`/fstec/rule-impacts${q ? `?${q}` : ''}`)
+  },
+
+  // Ключ (tool, rule_id) едет в теле: идентификаторы правил содержат слэши,
+  // названия инструментов — пробелы, и путь пришлось бы кодировать.
+  setRuleImpact: (patch: RuleImpactPatch): Promise<{ saved: number; recomputed: Record<string, number> }> =>
+    req('/fstec/rule-impacts', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    }),
 
   fstecProfile: (projectId: string): Promise<FstecProfile> =>
     req(`/projects/${projectId}/fstec-profile`),
