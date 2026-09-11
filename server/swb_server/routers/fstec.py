@@ -13,23 +13,30 @@ from __future__ import annotations
 from datetime import datetime
 from enum import Enum
 
-from fastapi import APIRouter, Depends, HTTPException
+from typing import Any
+
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from sqlalchemy import func
+
 from swb_contract.fstec import (
+    I_CVSS_MAX,
+    I_CVSS_MIN,
     LEVELS,
     METHODOLOGY,
     TABLE_1,
     ComponentType,
     Exploitation,
+    Impact,
     IndicatorSpec,
     PerimeterExposure,
     VulnerableShare,
 )
 
-from ..criticality import recompute_project
+from ..criticality import recompute_project, recompute_rule
 from ..db import get_db
-from ..models import Project, SystemProfile
+from ..models import Finding, Project, RuleImpact, Run, SystemProfile
 
 router = APIRouter(prefix="/api/v1")
 
@@ -189,3 +196,207 @@ def set_profile(project_id: str, body: dict, db: Session = Depends(get_db)) -> d
     db.commit()
 
     return {**_profile_to_dict(profile), "recomputed": stats}
+
+
+# ── Оценки правил ──────────────────────────────────────────────────────────
+#
+# Показатель H и, когда анализатор не дал `security-severity`, оценка CVSS
+# задаются на правило анализатора и хранятся глобально: последствие
+# эксплуатации — свойство слабости, а не репозитория.
+#
+# Ключ (tool, rule_id) едет в теле, а не в пути: идентификаторы правил
+# содержат слэши (`cpp/alloca-in-loop`, `SvEng.CXX.UNINIT.LOCAL_VAR/SvEng.U.29`),
+# названия инструментов — пробелы («Semgrep OSS»). Путь пришлось бы кодировать
+# на каждом клиенте, и любая ошибка кодирования молча создавала бы оценку не
+# того правила. Заодно тот же обработчик принимает массовую запись.
+
+_IMPACT_VALUES = [member.value for member in Impact]
+
+
+def _rule_row(impact: RuleImpact | None, *, tool: str, rule_id: str,
+              findings: int = 0, rule_name: str | None = None,
+              cwes: list[str] | None = None) -> dict:
+    return {
+        "tool": tool,
+        "rule_id": rule_id,
+        "rule_name": rule_name,
+        "cwes": cwes or [],
+        "findings": findings,
+        "impacts": (impact.impacts if impact else None) or [],
+        "not_applicable": bool(impact.not_applicable) if impact else False,
+        "i_cvss": impact.i_cvss if impact else None,
+        "cvss_vector": impact.cvss_vector if impact else None,
+        "note": impact.note if impact else None,
+        "updated_by": impact.updated_by if impact else None,
+        "updated_at": (
+            impact.updated_at.isoformat() if impact and impact.updated_at else None
+        ),
+        # Правило разобрано, если у него есть последствия либо оно признано
+        # не относящимся к безопасности. Пустая оценка — это очередь.
+        "assessed": bool(impact and (impact.impacts or impact.not_applicable)),
+    }
+
+
+@router.get("/fstec/rule-impacts")
+def list_rule_impacts(
+    tool: str | None = None,
+    unassessed: bool = False,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Оценки правил с числом находок за каждым.
+
+    `?unassessed=true` даёт очередь на разбор. Сортировка по числу находок:
+    распределение крайне неравномерное — на замеренном корпусе десять правил
+    закрывают две трети находок, а хвост из семидесяти даёт по одной-две.
+    Разбирать сверху вниз — самый короткий путь к покрытию.
+    """
+    counts = (
+        db.query(
+            Run.tool.label("tool"),
+            Finding.rule_id.label("rule_id"),
+            func.count(Finding.id).label("n"),
+            func.min(Finding.rule_name).label("rule_name"),
+            func.min(Finding.id).label("sample_id"),
+        )
+        .join(Run, Finding.run_id == Run.id)
+        .group_by(Run.tool, Finding.rule_id)
+        .all()
+    )
+    # CWE берутся с одной представительной находки правила, а не собираются по
+    # всем: у правила они одни и те же, а запрос на каждую строку очереди
+    # превратил бы её открытие в сотню обращений к базе.
+    cwes_by_id = {
+        row.id: (row.cwes or [])
+        for row in db.query(Finding.id, Finding.cwes).filter(
+            Finding.id.in_([c.sample_id for c in counts] or [""])
+        )
+    }
+    stats = {(str(c.tool), str(c.rule_id)): c for c in counts}
+
+    impacts = {(str(r.tool), str(r.rule_id)): r for r in db.query(RuleImpact).all()}
+
+    rows = []
+    for key in impacts.keys() | stats.keys():
+        t, rid = key
+        if tool and t != tool:
+            continue
+        c = stats.get(key)
+        row = _rule_row(
+            impacts.get(key), tool=t, rule_id=rid,
+            findings=int(c.n) if c else 0,
+            rule_name=c.rule_name if c else None,
+            cwes=cwes_by_id.get(c.sample_id) if c else None,
+        )
+        if unassessed and row["assessed"]:
+            continue
+        rows.append(row)
+
+    rows.sort(key=lambda r: (-r["findings"], r["tool"], r["rule_id"]))
+    return {
+        "total": len(rows),
+        "unassessed": sum(1 for r in rows if not r["assessed"]),
+        "items": rows,
+    }
+
+
+def _validate_rule_body(item: dict) -> dict:
+    """Одна оценка правила, проверенная по контракту."""
+    tool, rule_id = item.get("tool"), item.get("rule_id")
+    if not tool or not rule_id:
+        raise HTTPException(400, {
+            "error": "bad_request",
+            "message": "tool и rule_id обязательны — это ключ оценки",
+        })
+
+    impacts = item.get("impacts") or []
+    if not isinstance(impacts, list):
+        raise HTTPException(400, {"error": "bad_request", "message": "impacts: ожидается список"})
+    bad = [v for v in impacts if v not in _IMPACT_VALUES]
+    if bad:
+        raise HTTPException(400, {
+            "error": "bad_request",
+            "message": f"impacts: недопустимые значения {bad}; допустимы {_IMPACT_VALUES}",
+        })
+
+    i_cvss = item.get("i_cvss")
+    if i_cvss is not None:
+        try:
+            i_cvss = float(i_cvss)
+        except (TypeError, ValueError):
+            raise HTTPException(400, {
+                "error": "bad_request", "message": "i_cvss: ожидается число 0-10",
+            }) from None
+        if not (I_CVSS_MIN <= i_cvss <= I_CVSS_MAX):
+            raise HTTPException(400, {
+                "error": "bad_request",
+                "message": f"i_cvss: базовая оценка CVSS лежит в [{I_CVSS_MIN}, {I_CVSS_MAX}]",
+            })
+
+    not_applicable = bool(item.get("not_applicable"))
+    note = (item.get("note") or "").strip() or None
+    # Решение «правило не про уязвимости» убирает его находки из оценки
+    # целиком. Оно предъявляется аудитору вместе с обоснованием, поэтому
+    # обоснование обязательно именно здесь.
+    if not_applicable and not note:
+        raise HTTPException(400, {
+            "error": "bad_request",
+            "message": "not_applicable требует note: решение исключить правило из оценки "
+                       "должно быть обосновано",
+        })
+    if not_applicable and impacts:
+        raise HTTPException(400, {
+            "error": "bad_request",
+            "message": "not_applicable и impacts несовместимы: либо правило не про "
+                       "уязвимости, либо у него есть последствия",
+        })
+
+    return {
+        "tool": str(tool), "rule_id": str(rule_id),
+        "impacts": impacts or None, "not_applicable": not_applicable,
+        "i_cvss": i_cvss, "cvss_vector": item.get("cvss_vector") or None,
+        "note": note, "updated_by": item.get("updated_by") or "human",
+    }
+
+
+@router.put("/fstec/rule-impacts")
+def set_rule_impacts(
+    # `Any` вместо `dict | list`: FastAPI отвергает объединение как тело
+    # запроса с 422 ещё до обработчика, а принимать надо и одну оценку, и
+    # пачку — форма и массовый импорт ходят одним путём.
+    body: Any = Body(...),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Записать одну оценку или сразу пачку и пересчитать их находки.
+
+    Массовая запись — тем же обработчиком: так таблицу можно заполнить файлом
+    и перенести на другую установку, не выдумывая второй формат.
+
+    Пересчёт идёт по всем проектам: `rule_impacts` глобальна, и одна правка
+    закрывает правило везде сразу.
+    """
+    items = body if isinstance(body, list) else [body]
+    if not items or not all(isinstance(item, dict) for item in items):
+        raise HTTPException(400, {
+            "error": "bad_request",
+            "message": "ожидается объект оценки или список объектов",
+        })
+
+    cleaned = [_validate_rule_body(item) for item in items]
+
+    for data in cleaned:
+        impact = db.get(RuleImpact, (data["tool"], data["rule_id"])) or RuleImpact(
+            tool=data["tool"], rule_id=data["rule_id"]
+        )
+        for field in ("impacts", "not_applicable", "i_cvss", "cvss_vector", "note", "updated_by"):
+            setattr(impact, field, data[field])
+        impact.updated_at = datetime.utcnow()  # type: ignore[assignment]
+        db.add(impact)
+    db.flush()
+
+    stats: dict[str, int] = {}
+    for data in cleaned:
+        for status, n in recompute_rule(db, data["tool"], data["rule_id"]).items():
+            stats[status] = stats.get(status, 0) + n
+    db.commit()
+
+    return {"saved": len(cleaned), "recomputed": stats}
