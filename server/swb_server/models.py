@@ -182,7 +182,11 @@ class Finding(Base):
     rule_name = Column(String)
     rule_description = Column(Text)
     help_uri = Column(String)
+    # cwe — основной CWE правила (первый из перечисленных анализатором):
+    # на нём держатся фильтр `?cwe=` и агрегация `by=cwe`. cwes — весь
+    # список: CodeQL перечисляет по 2-5 штук на правило, и терять их нельзя.
     cwe = Column(String)
+    cwes = Column(JSON)
     severity = Column(String, default="note")
     message = Column(Text)
     uri = Column(String)

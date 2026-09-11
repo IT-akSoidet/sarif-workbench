@@ -78,6 +78,9 @@ def _serialize_finding(db: Session, f: Finding) -> dict:
         "rule_description": f.rule_description,
         "help_uri": f.help_uri,
         "cwe": f.cwe,
+        # всегда список (возможно пустой), даже у находок, загруженных до
+        # появления колонки — клиенту не нужна проверка на null
+        "cwes": f.cwes or [],
         "uri": f.uri,
         "start_line": f.start_line,
         "end_line": f.end_line,

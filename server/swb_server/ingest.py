@@ -12,15 +12,32 @@ from swb_contract.severity import SEV_ORDER, map_severity
 from swb_contract.swbmeta import Finding as MetaFinding
 
 
-def _extract_cwe(rule_id: str, tags: list[str]) -> str | None:
-    for tag in tags:
-        m = re.match(r"(?i)cwe-(\d+)", tag)
-        if m:
-            return f"CWE-{m.group(1)}"
-    m = re.match(r"(?i)(cwe-\d+)", rule_id)
-    if m:
-        return m.group(1).upper()
-    return None
+# Analyzers disagree on how a CWE is spelled in `rule.properties.tags`:
+# Semgrep writes `CWE-89: Improper Neutralization ...`, CodeQL writes
+# `external/cwe/cwe-089`. Hence a full-string search (not `match`, which
+# anchors at position 0 and never saw a single CodeQL tag) and `[-_/]` for
+# the separator.
+_CWE_RE = re.compile(r"(?i)cwe[-_/](\d+)")
+
+
+def _extract_cwes(rule_id: str, tags: list[str]) -> list[str]:
+    """Every CWE of a rule, in the order the analyzer listed them.
+
+    The number goes through `int()` so zero-padded ids collapse onto the
+    canonical form: `cwe-089` must become `CWE-89`, not `CWE-089`, or it
+    joins with nothing — neither the `?cwe=` filter, nor the `by=cwe`
+    aggregation, nor any CWE-keyed lookup.
+
+    Order is the analyzer's own and is preserved: the first tag is the
+    weakness the rule actually targets, the rest are related ones (CodeQL
+    routinely lists 2-5, e.g. path injection carries CWE-22/23/36/73).
+    Callers that need a single value take the first.
+    """
+    seen: dict[int, None] = {}
+    for text in (*tags, rule_id):
+        for m in _CWE_RE.finditer(text):
+            seen.setdefault(int(m.group(1)), None)
+    return [f"CWE-{n}" for n in seen]
 
 
 class MetaValidationError(ValueError):
@@ -148,7 +165,7 @@ def ingest(sarif_bytes: bytes, meta: dict) -> dict:
     Returns:
         {
           tool, tool_version,
-          rules: {rule_id: {name, description, help_uri, default_severity, cwe}},
+          rules: {rule_id: {name, description, help_uri, default_severity, cwes}},
           findings: [{...}],
           counts: {critical, high, medium, low, note, all},
         }
@@ -175,7 +192,7 @@ def ingest(sarif_bytes: bytes, meta: dict) -> dict:
                 "help_uri": rule.help_uri,
                 "default_severity": map_severity(rule.security_severity, rule.default_level),
                 "security_severity": rule.security_severity,
-                "cwe": _extract_cwe(rid, rule.tags),
+                "cwes": _extract_cwes(rid, rule.tags),
             }
 
     # Build SARIF results lookup: (run_idx, result_idx) -> result
@@ -212,7 +229,9 @@ def ingest(sarif_bytes: bytes, meta: dict) -> dict:
         message = sarif_result.message
         level = sarif_result.level
         severity = map_severity(rule_info.get("security_severity"), level)
-        cwe = rule_info.get("cwe") or _extract_cwe(rule_id, [])
+        # Falls back to the rule id for results whose rule is missing from
+        # the driver's rule list (some tools ship an incomplete one).
+        cwes = rule_info.get("cwes") or _extract_cwes(rule_id, [])
 
         fps = vf.fingerprints
         code = vf.code
@@ -231,7 +250,11 @@ def ingest(sarif_bytes: bytes, meta: dict) -> dict:
             "rule_name": rule_info.get("name", ""),
             "rule_description": rule_info.get("description", ""),
             "help_uri": rule_info.get("help_uri"),
-            "cwe": cwe,
+            # `cwe` — основной CWE (первый из перечисленных анализатором),
+            # на нём держатся фильтр и агрегация; `cwes` — все, для правила
+            # максимума п. 17 методики ФСТЭК.
+            "cwe": cwes[0] if cwes else None,
+            "cwes": cwes,
             "severity": severity,
             "message": message,
             "uri": uri,
