@@ -64,6 +64,12 @@ class SarifResult:
     code_flows: list[SarifCodeFlow] = field(default_factory=list)
     fingerprints: dict[str, str] = field(default_factory=dict)
     partial_fingerprints: dict[str, str] = field(default_factory=dict)
+    # Собственная качественная оценка анализатора, если он её отдал. У Svacer
+    # это `properties.checker_severity` — именно она, а не соседняя
+    # `properties.severity`: вторую перезаписывает разметка (в обоих наших
+    # отчётах она равна Minor у всех 424 находок, тогда как checker_severity
+    # различается).
+    tool_severity: str | None = None
 
 
 @dataclass

@@ -147,7 +147,24 @@ def _parse_result(run_idx: int, result_idx: int, result: dict) -> SarifResult:
         code_flows=_parse_code_flows(result.get("codeFlows", [])),
         fingerprints=_parse_fingerprint_dict(result.get("fingerprints")),
         partial_fingerprints=_parse_fingerprint_dict(result.get("partialFingerprints")),
+        tool_severity=_parse_tool_severity(result.get("properties")),
     )
+
+
+def _parse_tool_severity(props: object) -> str | None:
+    """Собственная качественная оценка анализатора из property bag результата.
+
+    `checker_severity` — ключ Svacer. Соседний `severity` берём только когда
+    первого нет: у Svacer он несёт severity РАЗМЕТКИ, а не анализатора, и в
+    обоих наших отчётах равен Minor у всех находок.
+    """
+    if not isinstance(props, dict):
+        return None
+    for key in ("checker_severity", "severity"):
+        value = props.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
 
 
 def _parse_fingerprint_dict(obj: object) -> dict[str, str]:

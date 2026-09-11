@@ -241,7 +241,12 @@ def ingest(sarif_bytes: bytes, meta: dict) -> dict:
         # результате не пишет) схлопывался в один уровень. Последний фолбэк
         # нужен для правил, которых нет в списке драйвера.
         level = sarif_result.level or rule_info.get("default_level") or "warning"
-        severity = map_severity(rule_info.get("security_severity"), level)
+        # Собственная шкала анализатора идёт перед `level`: у Svacer четыре
+        # ступени, а в `level` их помещается три, и Major с Normal там
+        # неразличимы — 278 находок из 424 в двух отчётах.
+        severity = map_severity(
+            rule_info.get("security_severity"), level, sarif_result.tool_severity
+        )
         # Falls back to the rule id for results whose rule is missing from
         # the driver's rule list (some tools ship an incomplete one).
         cwes = rule_info.get("cwes") or _extract_cwes(rule_id, [])
