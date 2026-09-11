@@ -10,15 +10,26 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter
+from datetime import datetime
+from enum import Enum
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
 from swb_contract.fstec import (
     LEVELS,
     METHODOLOGY,
     TABLE_1,
+    ComponentType,
     Exploitation,
     IndicatorSpec,
+    PerimeterExposure,
+    VulnerableShare,
 )
+
+from ..criticality import recompute_project
+from ..db import get_db
+from ..models import Project, SystemProfile
 
 router = APIRouter(prefix="/api/v1")
 
@@ -76,3 +87,105 @@ def get_indicators() -> dict:
             ),
         },
     }
+
+
+# ── Профиль информационной системы ─────────────────────────────────────────
+#
+# Показатели K, L и P описывают систему, а не находку, и в SARIF их нет по
+# природе: анализатор видит исходный код, а не развёрнутый компонент. П. 8в
+# методики берёт их из инвентаризации, поэтому заполняются вручную — один раз
+# на проект, а не на каждую находку.
+
+# Поле профиля → перечисление контракта, значения которого оно принимает.
+_PROFILE_FIELDS: dict[str, type[Enum]] = {
+    "component_type": ComponentType,
+    "vulnerable_share": VulnerableShare,
+    "perimeter_exposure": PerimeterExposure,
+}
+
+
+def _profile_to_dict(profile: SystemProfile | None) -> dict:
+    """Профиль плюс перечень незаполненных полей.
+
+    Пустое поле — это «не задано», а не ноль: находка с таким профилем уходит
+    в «требует оценки». Список `missing` тут для того, чтобы интерфейс мог
+    сказать, чего именно не хватает, не сверяя поля сам.
+    """
+    values = {
+        field: getattr(profile, field, None) if profile else None for field in _PROFILE_FIELDS
+    }
+    return {
+        **values,
+        "missing": [field for field, value in values.items() if value is None],
+        "complete": all(values.values()),
+        "updated_by": profile.updated_by if profile else None,
+        "updated_at": profile.updated_at.isoformat() if profile and profile.updated_at else None,
+    }
+
+
+def _validate(body: dict) -> dict[str, str | None]:
+    """Значения из тела запроса, проверенные по перечислениям контракта.
+
+    Неизвестное значение — 400, а не тихая запись: строка, не совпадающая с
+    перечислением, позже уронит расчёт где-то далеко от места ошибки, и
+    находка будет выглядеть недооценённой без объяснения. Явный `null`
+    очищает поле — так профиль можно вернуть в «не заполнено».
+    """
+    # `updated_by` — не показатель методики, а подпись под решением, но
+    # приходит тем же телом и в список неизвестных попадать не должен.
+    unknown = set(body) - set(_PROFILE_FIELDS) - {"updated_by"}
+    if unknown:
+        raise HTTPException(400, {
+            "error": "bad_request",
+            "message": f"неизвестные поля профиля: {sorted(unknown)}",
+        })
+
+    cleaned: dict[str, str | None] = {}
+    for field, enum_cls in _PROFILE_FIELDS.items():
+        if field not in body:
+            continue
+        value = body[field]
+        if value is None:
+            cleaned[field] = None
+            continue
+        allowed = [member.value for member in enum_cls]
+        if value not in allowed:
+            raise HTTPException(400, {
+                "error": "bad_request",
+                "message": f"{field}: недопустимое значение {value!r}; допустимы {allowed}",
+            })
+        cleaned[field] = value
+    return cleaned
+
+
+@router.get("/projects/{project_id}/fstec-profile")
+def get_profile(project_id: str, db: Session = Depends(get_db)) -> dict:
+    if not db.get(Project, project_id):
+        raise HTTPException(404, {"error": "not_found", "message": "Project not found"})
+    return _profile_to_dict(db.get(SystemProfile, project_id))
+
+
+@router.put("/projects/{project_id}/fstec-profile")
+def set_profile(project_id: str, body: dict, db: Session = Depends(get_db)) -> dict:
+    """Записать профиль и пересчитать находки проекта.
+
+    Пересчёт здесь обязателен по п. 19: K, L и P входят в формулу, и после
+    их изменения прежние уровни критичности недействительны.
+    """
+    if not db.get(Project, project_id):
+        raise HTTPException(404, {"error": "not_found", "message": "Project not found"})
+
+    cleaned = _validate(body)
+    profile = db.get(SystemProfile, project_id) or SystemProfile(project_id=project_id)
+    for field, value in cleaned.items():
+        setattr(profile, field, value)
+    # Column[T]-vs-T false positive (same class as verdicts.py:123, T-54)
+    profile.updated_by = body.get("updated_by") or "human"  # type: ignore[assignment]
+    profile.updated_at = datetime.utcnow()  # type: ignore[assignment]
+    db.add(profile)
+    db.flush()
+
+    stats = recompute_project(db, project_id)
+    db.commit()
+
+    return {**_profile_to_dict(profile), "recomputed": stats}
